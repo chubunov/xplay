@@ -10,6 +10,7 @@ class OrderManager {
         // ЗАМЕНИТЕ ЭТОТ URL НА ВАШ ИЗ GOOGLE APPS SCRIPT
         this.apiUrl = 'https://script.google.com/macros/s/AKfycbwm4WcDisdhM_q2JO6eTddt-olO8y8H_7eR573SGsLSQBTX9aFOTqgXlWl8s4oG-Sme/exec';
         this.loading = false;
+        this.currentOrderId = null;
         this.checkAuth();
     }
 
@@ -114,37 +115,6 @@ class OrderManager {
         return false;
     }
 
-    async deleteOrder(id) {
-        if (!confirm('⚠️ Вы уверены, что хотите удалить заказ? Это действие нельзя отменить!')) {
-            return false;
-        }
-        
-        this.showLoading();
-        try {
-            const formData = new FormData();
-            formData.append('action', 'deleteOrder');
-            formData.append('id', id);
-            
-            const response = await fetch(this.apiUrl, {
-                method: 'POST',
-                body: formData
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                await this.loadOrders();
-                this.showNotification('🗑️ Заказ удален', 'warning');
-                return true;
-            }
-        } catch (error) {
-            console.error('Ошибка удаления:', error);
-            this.showNotification('❌ Ошибка удаления', 'danger');
-        }
-        this.hideLoading();
-        return false;
-    }
-
     async closeOrder(id, finalPrice) {
         return this.updateOrder(id, {
             status: 'Выдан',
@@ -166,6 +136,58 @@ class OrderManager {
             completionDate: ''
         });
     }
+
+    // ========== ФУНКЦИИ ДЛЯ УДАЛЕНИЯ ==========
+
+    showDeleteConfirmation(id) {
+        this.currentOrderId = id;
+        const modal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+        modal.show();
+    }
+
+    async confirmDeleteOrder() {
+        if (!this.currentOrderId) return;
+        
+        bootstrap.Modal.getInstance(document.getElementById('deleteConfirmModal')).hide();
+        this.showLoading();
+        
+        try {
+            const formData = new FormData();
+            formData.append('action', 'deleteOrder');
+            formData.append('id', this.currentOrderId);
+            
+            const response = await fetch(this.apiUrl, {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                await this.loadOrders();
+                
+                const viewModal = bootstrap.Modal.getInstance(document.getElementById('viewOrderModal'));
+                if (viewModal) viewModal.hide();
+                
+                this.showNotification('✅ Заказ успешно удален', 'success');
+                this.render();
+            } else {
+                this.showNotification('❌ Ошибка при удалении заказа', 'danger');
+            }
+        } catch (error) {
+            console.error('Ошибка удаления:', error);
+            this.showNotification('❌ Ошибка соединения', 'danger');
+        }
+        
+        this.hideLoading();
+        this.currentOrderId = null;
+    }
+
+    async deleteOrder(id) {
+        this.showDeleteConfirmation(id);
+    }
+
+    // ========== АВТОРИЗАЦИЯ ==========
 
     async login(password, remember = false) {
         try {
@@ -218,6 +240,29 @@ class OrderManager {
         this.updateUIForAuth();
     }
 
+    updateUIForAuth() {
+        const adminMenu = document.getElementById('adminMenu');
+        const authButtons = document.getElementById('authButtons');
+        const userMenu = document.getElementById('userMenu');
+        const logoutButton = document.getElementById('logoutButton');
+        const userName = document.getElementById('userName');
+        
+        if (adminMenu && authButtons && userMenu && logoutButton) {
+            if (this.isAdmin) {
+                adminMenu.style.display = 'block';
+                authButtons.style.display = 'none';
+                userMenu.style.display = 'block';
+                logoutButton.style.display = 'block';
+                if (userName) userName.innerHTML = '<i class="bi bi-person-badge"></i> Админ';
+            } else {
+                adminMenu.style.display = 'none';
+                authButtons.style.display = 'block';
+                userMenu.style.display = 'none';
+                logoutButton.style.display = 'none';
+            }
+        }
+    }
+
     // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
     showLoading() {
@@ -244,16 +289,6 @@ class OrderManager {
         }, 5000);
     }
 
-    formatDate(date) {
-        return new Date(date).toLocaleString('ru-RU', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    }
-
     // ========== ПОИСК И ФИЛЬТРАЦИЯ ==========
 
     getActiveOrders() {
@@ -274,8 +309,7 @@ class OrderManager {
         return this.orders.filter(o => 
             (o.phone && o.phone.toLowerCase().includes(query)) ||
             (o.customername && o.customername.toLowerCase().includes(query)) ||
-            (o.ordernumber && o.ordernumber.toLowerCase().includes(query)) ||
-            (o.id && o.id.toLowerCase().includes(query))
+            (o.ordernumber && o.ordernumber.toLowerCase().includes(query))
         );
     }
 
@@ -319,10 +353,8 @@ class OrderManager {
     // ========== ФУНКЦИИ ПЕЧАТИ ==========
 
     printOrder(order) {
-        // Создаем окно для печати
         const printWindow = window.open('', '_blank');
         
-        // Формируем HTML для печати с правильными размерами для А4
         const html = `
             <!DOCTYPE html>
             <html>
@@ -330,108 +362,63 @@ class OrderManager {
                 <title>Договор №${order.ordernumber}</title>
                 <meta charset="utf-8">
                 <style>
-                    /* Сброс отступов для печати */
-                    * {
-                        margin: 0;
-                        padding: 0;
-                        box-sizing: border-box;
-                    }
-                    
-                    /* Настройки страницы для А4 */
-                    @page {
-                        size: A4;
-                        margin: 1cm;
-                    }
-                    
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    @page { size: A4; margin: 1cm; }
                     body {
                         font-family: 'Times New Roman', Times, serif;
-                        font-size: 10pt; /* Уменьшенный базовый шрифт */
+                        font-size: 10pt;
                         line-height: 1.2;
                         color: #000;
                         background: #fff;
-                        width: 100%;
                     }
-                    
-                    /* Контейнер для всего договора */
-                    .contract {
-                        max-width: 100%;
-                        margin: 0 auto;
-                    }
-                    
-                    /* Шапка */
+                    .contract { max-width: 100%; margin: 0 auto; }
                     .header {
                         text-align: center;
                         margin-bottom: 10px;
                         border-bottom: 1px solid #000;
                         padding-bottom: 5px;
                     }
-                    
-                    .header h1 {
-                        font-size: 14pt;
-                        font-weight: bold;
-                        margin: 0;
-                    }
-                    
-                    .header p {
-                        font-size: 10pt;
-                        margin: 2px 0;
-                    }
-                    
-                    /* Номер договора */
+                    .header h1 { font-size: 14pt; font-weight: bold; margin: 0; }
+                    .header p { font-size: 10pt; margin: 2px 0; }
                     .contract-number {
                         text-align: center;
                         font-size: 12pt;
                         font-weight: bold;
                         margin: 10px 0;
                     }
-                    
-                    /* Таблица */
                     table {
                         width: 100%;
                         border-collapse: collapse;
                         margin: 10px 0;
                         font-size: 9pt;
                     }
-                    
                     td {
                         padding: 4px 6px;
                         border: 1px solid #000;
                         vertical-align: top;
                     }
-                    
                     td:first-child {
                         font-weight: bold;
                         width: 30%;
                         background: #f0f0f0;
                     }
-                    
-                    /* Условия */
                     .conditions {
                         margin: 10px 0;
                         font-size: 8pt;
                         line-height: 1.1;
                         text-align: justify;
                     }
-                    
                     .conditions h6 {
                         font-size: 9pt;
                         font-weight: bold;
                         margin: 5px 0 2px 0;
                     }
-                    
-                    /* Подписи */
                     .signature {
                         margin-top: 15px;
                         display: flex;
                         justify-content: space-between;
                         font-size: 9pt;
                     }
-                    
-                    .signature-line {
-                        margin-top: 5px;
-                    }
-                    
-                    /* Линия отреза */
                     .cut-line {
                         text-align: center;
                         margin: 15px 0 10px 0;
@@ -441,8 +428,6 @@ class OrderManager {
                         font-size: 9pt;
                         font-style: italic;
                     }
-                    
-                    /* Копия */
                     .copy {
                         text-align: center;
                         font-weight: bold;
@@ -450,22 +435,14 @@ class OrderManager {
                         margin: 15px 0 10px 0;
                         text-transform: uppercase;
                     }
-                    
-                    /* Для печати */
                     @media print {
-                        body {
-                            margin: 0;
-                            padding: 0;
-                        }
-                        .no-print {
-                            display: none;
-                        }
+                        body { margin: 0; padding: 0; }
+                        .no-print { display: none; }
                     }
                 </style>
             </head>
             <body>
                 <div class="contract">
-                    <!-- ===== ВЕРХНЯЯ ЧАСТЬ (ДЛЯ КЛИЕНТА) ===== -->
                     <div class="header">
                         <h1>Xplay сервис</h1>
                         <p>Тула, Центральный переулок д.18</p>
@@ -478,46 +455,16 @@ class OrderManager {
                     </div>
                     
                     <table>
-                        <tr>
-                            <td>Клиент:</td>
-                            <td>${order.customername || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Телефон:</td>
-                            <td>${order.phone || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Устройство:</td>
-                            <td>${order.devicetype || ''} ${order.devicemodel || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Серийный номер:</td>
-                            <td>${order.serialnumber || 'Отсутствует'}</td>
-                        </tr>
-                        <tr>
-                            <td>Неисправность:</td>
-                            <td>${order.problem || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Примерная стоимость:</td>
-                            <td>${order.estimatedprice || 'Мастер уточнит'} ${order.estimatedprice !== 'Мастер уточнит' && order.estimatedprice !== 'мастер уточнит' ? 'руб.' : ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Предоплата:</td>
-                            <td>${order.prepayment === '-' || !order.prepayment ? 'нет' : order.prepayment}</td>
-                        </tr>
-                        <tr>
-                            <td>Гарантия:</td>
-                            <td>${order.warranty || '30 дней'}</td>
-                        </tr>
-                        <tr>
-                            <td>Дата приема:</td>
-                            <td>${order.acceptancedate || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Срок ремонта:</td>
-                            <td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td>
-                        </tr>
+                        <tr><td>Клиент:</td><td>${order.customername || ''}</td></tr>
+                        <tr><td>Телефон:</td><td>${order.phone || ''}</td></tr>
+                        <tr><td>Устройство:</td><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
+                        <tr><td>Серийный номер:</td><td>${order.serialnumber || 'Отсутствует'}</td></tr>
+                        <tr><td>Неисправность:</td><td>${order.problem || ''}</td></tr>
+                        <tr><td>Примерная стоимость:</td><td>${order.estimatedprice || 'Мастер уточнит'} ${order.estimatedprice !== 'Мастер уточнит' && order.estimatedprice !== 'мастер уточнит' ? 'руб.' : ''}</td></tr>
+                        <tr><td>Предоплата:</td><td>${order.prepayment === '-' || !order.prepayment ? 'нет' : order.prepayment}</td></tr>
+                        <tr><td>Гарантия:</td><td>${order.warranty || '30 дней'}</td></tr>
+                        <tr><td>Дата приема:</td><td>${order.acceptancedate || ''}</td></tr>
+                        <tr><td>Срок ремонта:</td><td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td></tr>
                     </table>
                     
                     <div class="conditions">
@@ -532,11 +479,9 @@ class OrderManager {
                         <div>Мастер: _________________________</div>
                     </div>
                     
-                    <!-- ЛИНИЯ ОТРЕЗА -->
                     <div class="cut-line">- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</div>
                     <div style="text-align: center; font-size: 8pt; font-style: italic; margin-top: -8px;">(отрезать клиенту)</div>
                     
-                    <!-- ===== НИЖНЯЯ ЧАСТЬ (ДЛЯ СЕРВИСА) ===== -->
                     <div class="copy">КОПИЯ ДЛЯ СЕРВИСА</div>
                     
                     <div class="contract-number">
@@ -544,47 +489,17 @@ class OrderManager {
                     </div>
                     
                     <table>
-                        <tr>
-                            <td>Клиент:</td>
-                            <td>${order.customername || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Телефон:</td>
-                            <td>${order.phone || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Устройство:</td>
-                            <td>${order.devicetype || ''} ${order.devicemodel || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>S/N:</td>
-                            <td>${order.serialnumber || 'Отсутствует'}</td>
-                        </tr>
-                        <tr>
-                            <td>Неисправность:</td>
-                            <td>${order.problem || ''}</td>
-                        </tr>
-                        <tr>
-                            <td>Предоплата:</td>
-                            <td>${order.prepayment === '-' || !order.prepayment ? 'нет' : order.prepayment}</td>
-                        </tr>
-                        <tr>
-                            <td>Гарантия:</td>
-                            <td>${order.warranty || '30 дней'}</td>
-                        </tr>
-                        <tr>
-                            <td>Статус:</td>
-                            <td>${order.status || 'Принят'}</td>
-                        </tr>
+                        <tr><td>Клиент:</td><td>${order.customername || ''}</td></tr>
+                        <tr><td>Телефон:</td><td>${order.phone || ''}</td></tr>
+                        <tr><td>Устройство:</td><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
+                        <tr><td>S/N:</td><td>${order.serialnumber || 'Отсутствует'}</td></tr>
+                        <tr><td>Неисправность:</td><td>${order.problem || ''}</td></tr>
+                        <tr><td>Предоплата:</td><td>${order.prepayment === '-' || !order.prepayment ? 'нет' : order.prepayment}</td></tr>
+                        <tr><td>Гарантия:</td><td>${order.warranty || '30 дней'}</td></tr>
+                        <tr><td>Статус:</td><td>${order.status || 'Принят'}</td></tr>
                         ${order.status === 'Выдан' ? `
-                        <tr>
-                            <td>Итоговая стоимость:</td>
-                            <td><strong>${order.finalprice || 0} руб.</strong></td>
-                        </tr>
-                        <tr>
-                            <td>Дата выдачи:</td>
-                            <td>${order.completiondate || ''}</td>
-                        </tr>
+                        <tr><td>Итоговая стоимость:</td><td><strong>${order.finalprice || 0} руб.</strong></td></tr>
+                        <tr><td>Дата выдачи:</td><td>${order.completiondate || ''}</td></tr>
                         ` : ''}
                     </table>
                     
@@ -600,7 +515,6 @@ class OrderManager {
                         <div>Мастер: _________________________</div>
                     </div>
                     
-                    <!-- Кнопка печати (не будет видна при печати) -->
                     <div class="no-print" style="text-align: center; margin-top: 20px;">
                         <button onclick="window.print()" style="padding: 8px 20px; font-size: 14px; cursor: pointer;">🖨️ Печать</button>
                         <button onclick="window.close()" style="padding: 8px 20px; font-size: 14px; cursor: pointer;">✖️ Закрыть</button>
@@ -608,10 +522,7 @@ class OrderManager {
                 </div>
                 
                 <script>
-                    // Автоматически открыть диалог печати через небольшую задержку
-                    setTimeout(() => {
-                        window.print();
-                    }, 500);
+                    setTimeout(() => { window.print(); }, 500);
                 </script>
             </body>
             </html>
@@ -619,6 +530,134 @@ class OrderManager {
         
         printWindow.document.write(html);
         printWindow.document.close();
+    }
+
+    // ========== ПРОСМОТР ЗАКАЗА ==========
+
+    async viewOrder(id) {
+        const order = this.getOrderById(id);
+        if (!order) return;
+        
+        this.currentOrderId = id;
+        
+        const modal = document.getElementById('viewOrderModal');
+        const title = document.getElementById('viewOrderTitle');
+        const content = document.getElementById('viewOrderContent');
+        
+        title.textContent = `Заказ №${order.ordernumber || 'Без номера'}`;
+        
+        let html = `
+            <div id="printableOrder">
+                <div class="text-center mb-4">
+                    <h4>Xplay сервис</h4>
+                    <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
+                    <h5 class="text-primary">Договор № ${order.ordernumber || ''}</h5>
+                    <p>от ${order.acceptancedate || ''}</p>
+                </div>
+                
+                <table class="table table-bordered">
+                    <tr><th style="width: 40%">Клиент:</th><td>${order.customername || ''}</td></tr>
+                    <tr><th>Телефон:</th><td>${order.phone || ''}</td></tr>
+                    <tr><th>Устройство:</th><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
+                    <tr><th>Серийный номер:</th><td>${order.serialnumber || 'Отсутствует'}</td></tr>
+                    <tr><th>Неисправность:</th><td>${order.problem || ''}</td></tr>
+                    <tr><th>Примерная стоимость:</th><td>${order.estimatedprice || 'Мастер уточнит'} ${order.estimatedprice !== 'Мастер уточнит' ? '₽' : ''}</td></tr>
+                    <tr><th>Предоплата:</th><td>${order.prepayment === '-' ? 'нет' : order.prepayment}</td></tr>
+                    <tr><th>Гарантия:</th><td>${order.warranty || '30 дней'}</td></tr>
+                    <tr><th>Статус:</th><td>
+                        <span class="status-badge ${order.status === 'Выдан' ? 'status-completed' : 'status-active'}">
+                            ${order.status || 'Новый'}
+                        </span>
+                    </td></tr>
+        `;
+        
+        if (order.status === 'Выдан') {
+            html += `
+                <tr><th>Итоговая стоимость:</th><td><strong>${order.finalprice || 0} ₽</strong></td></tr>
+                <tr><th>Дата выдачи:</th><td>${order.completiondate || ''}</td></tr>
+            `;
+        }
+        
+        html += `
+                </table>
+                
+                <div class="mt-4">
+                    <h6>Условия:</h6>
+                    <small>
+                        1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
+                        2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
+                        3. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ в размере 300 рублей - аксессуары, 800 рублей - игровые консоли.
+                    </small>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-6">
+                        <p>Клиент: _________________________</p>
+                    </div>
+                    <div class="col-6 text-end">
+                        <p>Мастер: _________________________</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        content.innerHTML = html;
+        
+        const printBtn = document.getElementById('printOrderBtn');
+        const closeBtn = document.getElementById('closeOrderBtn');
+        const restoreBtn = document.getElementById('restoreOrderBtn');
+        const deleteBtn = document.getElementById('deleteOrderBtn');
+        
+        printBtn.onclick = () => this.printOrder(order);
+        
+        if (this.isAdmin) {
+            if (order.status !== 'Выдан') {
+                closeBtn.style.display = 'inline-block';
+                closeBtn.onclick = () => this.showCloseOrderForm(order);
+                restoreBtn.style.display = 'none';
+            } else {
+                closeBtn.style.display = 'none';
+                restoreBtn.style.display = 'inline-block';
+                restoreBtn.onclick = () => this.restoreOrder(order.id);
+            }
+            deleteBtn.style.display = 'inline-block';
+            deleteBtn.onclick = () => this.showDeleteConfirmation(order.id);
+        } else {
+            closeBtn.style.display = 'none';
+            restoreBtn.style.display = 'none';
+            deleteBtn.style.display = 'none';
+        }
+        
+        new bootstrap.Modal(modal).show();
+    }
+
+    showCloseOrderForm(order) {
+        document.getElementById('closeOrderId').value = order.id;
+        document.getElementById('closeCustomerName').value = order.customername || '';
+        document.getElementById('closePhone').value = order.phone || '';
+        document.getElementById('closeDevice').value = `${order.devicetype || ''} ${order.devicemodel || ''}`;
+        document.getElementById('closeProblem').value = order.problem || '';
+        document.getElementById('closeEstimatedPrice').value = order.estimatedprice || 'Мастер уточнит';
+        document.getElementById('finalPrice').value = '';
+        
+        new bootstrap.Modal(document.getElementById('closeOrderModal')).show();
+    }
+
+    async confirmCloseOrder() {
+        const id = document.getElementById('closeOrderId').value;
+        const finalPrice = document.getElementById('finalPrice').value;
+        
+        if (!finalPrice) {
+            alert('Введите итоговую стоимость');
+            return;
+        }
+        
+        const success = await this.closeOrder(id, finalPrice);
+        if (success) {
+            bootstrap.Modal.getInstance(document.getElementById('closeOrderModal')).hide();
+            bootstrap.Modal.getInstance(document.getElementById('viewOrderModal')).hide();
+            this.renderActiveOrders();
+        }
     }
 
     // ========== ОТОБРАЖЕНИЕ ИНТЕРФЕЙСА ==========
@@ -752,7 +791,7 @@ class OrderManager {
                     <span>Страница ${this.currentPage} из ${totalPages || 1}</span>
                 </div>
                 <div class="card-body">
-                    ${this.renderOrdersList(paginated, 'active')}
+                    ${this.renderOrdersList(paginated)}
                     ${this.renderPagination(totalPages)}
                 </div>
             </div>
@@ -788,7 +827,7 @@ class OrderManager {
                     <span>Страница ${this.currentPage} из ${totalPages || 1}</span>
                 </div>
                 <div class="card-body">
-                    ${this.renderOrdersList(paginated, 'completed')}
+                    ${this.renderCompletedOrdersList(paginated)}
                     ${this.renderPagination(totalPages)}
                 </div>
             </div>
@@ -797,7 +836,7 @@ class OrderManager {
         document.getElementById('mainContent').innerHTML = html;
     }
 
-    renderOrdersList(orders, type = 'active') {
+    renderOrdersList(orders) {
         if (orders.length === 0) {
             return '<p class="text-center py-4">Нет заказов</p>';
         }
@@ -819,17 +858,42 @@ class OrderManager {
                         </div>
                     </div>
                     <div class="col-md-4 text-end">
-                        <span class="status-badge ${type === 'active' ? 'status-active' : 'status-completed'} d-inline-block mb-2">
+                        <span class="status-badge status-active d-inline-block mb-2">
                             ${o.status || 'Новый'}
                         </span>
                         <div><small>📅 ${o.acceptancedate || ''}</small></div>
-                        ${type === 'completed' ? `
-                            <div><small>✅ ${o.completiondate || ''}</small></div>
-                            <div class="mt-2"><strong>💰 ${o.finalprice || 0} ₽</strong></div>
-                        ` : ''}
-                        ${o.estimatedprice && o.estimatedprice !== 'Мастер уточнит' && type === 'active' ? `
+                        ${o.estimatedprice && o.estimatedprice !== 'Мастер уточнит' && o.estimatedprice !== 'мастер уточнит' ? `
                             <div class="mt-2"><small>💰 ${o.estimatedprice} ₽</small></div>
                         ` : ''}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    renderCompletedOrdersList(orders) {
+        if (orders.length === 0) {
+            return '<p class="text-center py-4">Нет завершенных заказов</p>';
+        }
+        
+        return orders.map(o => `
+            <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
+                <div class="row">
+                    <div class="col-md-7">
+                        <strong class="text-primary">${o.ordernumber || 'Без номера'}</strong>
+                        <div class="mt-2">
+                            <small>
+                                <i class="bi bi-person"></i> ${o.customername || ''}<br>
+                                <i class="bi bi-telephone"></i> ${o.phone || ''}<br>
+                                <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="col-md-5 text-end">
+                        <span class="status-badge status-completed d-inline-block mb-2">${o.status || 'Выдан'}</span>
+                        <div><small>📅 Принят: ${o.acceptancedate || ''}</small></div>
+                        <div><small>✅ Выдан: ${o.completiondate || ''}</small></div>
+                        <div class="mt-2"><strong>💰 ${o.finalprice || 0} ₽</strong></div>
                     </div>
                 </div>
             </div>
@@ -929,147 +993,6 @@ class OrderManager {
         resultsDiv.innerHTML = html;
     }
 
-    // ========== ПРОСМОТР И УПРАВЛЕНИЕ ЗАКАЗОМ ==========
-
-    async viewOrder(id) {
-        const order = this.getOrderById(id);
-        if (!order) return;
-        
-        // Сохраняем ID текущего заказа для кнопок
-        this.currentOrderId = id;
-        
-        const modal = document.getElementById('viewOrderModal');
-        const title = document.getElementById('viewOrderTitle');
-        const content = document.getElementById('viewOrderContent');
-        
-        title.textContent = `Заказ №${order.ordernumber || 'Без номера'}`;
-        
-        let html = `
-            <div id="printableOrder">
-                <div class="text-center mb-4">
-                    <h4>Xplay сервис</h4>
-                    <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
-                    <h5 class="text-primary">Договор № ${order.ordernumber || ''}</h5>
-                    <p>от ${order.acceptancedate || ''}</p>
-                </div>
-                
-                <table class="table table-bordered">
-                    <tr><th style="width: 40%">Клиент:</th><td>${order.customername || ''}</td></tr>
-                    <tr><th>Телефон:</th><td>${order.phone || ''}</td></tr>
-                    <tr><th>Устройство:</th><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
-                    <tr><th>Серийный номер:</th><td>${order.serialnumber || 'Отсутствует'}</td></tr>
-                    <tr><th>Неисправность:</th><td>${order.problem || ''}</td></tr>
-                    <tr><th>Примерная стоимость:</th><td>${order.estimatedprice || 'Мастер уточнит'} ${order.estimatedprice !== 'Мастер уточнит' ? '₽' : ''}</td></tr>
-                    <tr><th>Предоплата:</th><td>${order.prepayment === '-' ? 'нет' : order.prepayment}</td></tr>
-                    <tr><th>Гарантия:</th><td>${order.warranty || '30 дней'}</td></tr>
-                    <tr><th>Статус:</th><td>
-                        <span class="status-badge ${order.status === 'Выдан' ? 'status-completed' : 'status-active'}">
-                            ${order.status || 'Новый'}
-                        </span>
-                    </td></tr>
-        `;
-        
-        if (order.status === 'Выдан') {
-            html += `
-                <tr><th>Итоговая стоимость:</th><td><strong>${order.finalprice || 0} ₽</strong></td></tr>
-                <tr><th>Дата выдачи:</th><td>${order.completiondate || ''}</td></tr>
-            `;
-        }
-        
-        html += `
-                </table>
-                
-                <div class="mt-4">
-                    <h6>Условия:</h6>
-                    <small>
-                        1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
-                        2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
-                        3. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ в размере 300 рублей - аксессуары, 800 рублей - игровые консоли.
-                    </small>
-                </div>
-                
-                <div class="row mt-4">
-                    <div class="col-6">
-                        <p>Клиент: _________________________</p>
-                    </div>
-                    <div class="col-6 text-end">
-                        <p>Мастер: _________________________</p>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        content.innerHTML = html;
-        
-        // Настраиваем кнопки в зависимости от прав
-        const printBtn = document.getElementById('printOrderBtn');
-        const closeBtn = document.getElementById('closeOrderBtn');
-        const restoreBtn = document.getElementById('restoreOrderBtn');
-        const deleteBtn = document.getElementById('deleteOrderBtn');
-        
-        printBtn.onclick = () => this.printOrder(order);
-        
-        if (this.isAdmin) {
-            if (order.status !== 'Выдан') {
-                closeBtn.style.display = 'inline-block';
-                closeBtn.onclick = () => this.showCloseOrderForm(order);
-                restoreBtn.style.display = 'none';
-            } else {
-                closeBtn.style.display = 'none';
-                restoreBtn.style.display = 'inline-block';
-                restoreBtn.onclick = () => this.restoreOrder(order.id);
-            }
-            deleteBtn.style.display = 'inline-block';
-            deleteBtn.onclick = () => this.deleteOrder(order.id);
-        } else {
-            closeBtn.style.display = 'none';
-            restoreBtn.style.display = 'none';
-            deleteBtn.style.display = 'none';
-        }
-        
-        new bootstrap.Modal(modal).show();
-    }
-
-    showCloseOrderForm(order) {
-        const modal = document.getElementById('closeOrderModal');
-        document.getElementById('closeOrderId').value = order.id;
-        document.getElementById('closeCustomerName').value = order.customername || '';
-        document.getElementById('closePhone').value = order.phone || '';
-        document.getElementById('closeDevice').value = `${order.devicetype || ''} ${order.devicemodel || ''}`;
-        document.getElementById('closeProblem').value = order.problem || '';
-        document.getElementById('closeEstimatedPrice').value = order.estimatedprice || 'Мастер уточнит';
-        document.getElementById('finalPrice').value = '';
-        
-        new bootstrap.Modal(modal).show();
-    }
-
-    async confirmCloseOrder() {
-        const id = document.getElementById('closeOrderId').value;
-        const finalPrice = document.getElementById('finalPrice').value;
-        
-        if (!finalPrice) {
-            alert('Введите итоговую стоимость');
-            return;
-        }
-        
-        const success = await this.closeOrder(id, finalPrice);
-        if (success) {
-            bootstrap.Modal.getInstance(document.getElementById('closeOrderModal')).hide();
-            bootstrap.Modal.getInstance(document.getElementById('viewOrderModal')).hide();
-            this.renderActiveOrders();
-        }
-    }
-
-    async confirmDeleteOrder() {
-        if (!this.currentOrderId) return;
-        
-        const success = await this.deleteOrder(this.currentOrderId);
-        if (success) {
-            bootstrap.Modal.getInstance(document.getElementById('viewOrderModal')).hide();
-            this.renderActiveOrders();
-        }
-    }
-
     showNewOrderForm() {
         document.getElementById('orderModalTitle').textContent = 'Новый договор';
         document.getElementById('orderForm').reset();
@@ -1138,33 +1061,7 @@ class OrderManager {
         this.render();
     }
 
-    // ========== АВТОРИЗАЦИЯ ==========
-
-    updateUIForAuth() {
-        const adminMenu = document.getElementById('adminMenu');
-        const authButtons = document.getElementById('authButtons');
-        const userMenu = document.getElementById('userMenu');
-        const logoutButton = document.getElementById('logoutButton');
-        const userName = document.getElementById('userName');
-        
-        if (adminMenu && authButtons && userMenu && logoutButton) {
-            if (this.isAdmin) {
-                adminMenu.style.display = 'block';
-                authButtons.style.display = 'none';
-                userMenu.style.display = 'block';
-                logoutButton.style.display = 'block';
-                if (userName) userName.innerHTML = '<i class="bi bi-person-badge"></i> Админ';
-            } else {
-                adminMenu.style.display = 'none';
-                authButtons.style.display = 'block';
-                userMenu.style.display = 'none';
-                logoutButton.style.display = 'none';
-            }
-        }
-    }
-
     setupEventListeners() {
-        // Добавляем обработчик для поиска по Enter
         document.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && document.getElementById('searchQuery')) {
                 this.performSearch();
@@ -1176,7 +1073,7 @@ class OrderManager {
 // ========== ГЛОБАЛЬНЫЙ ЭКЗЕМПЛЯР ==========
 const orderManager = new OrderManager();
 
-// ========== ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ HTML ==========
+// ========== ГЛОБАЛЬНЫЕ ФУНКЦИИ ==========
 
 // Навигация
 function showDashboard() { orderManager.showDashboard(); }
@@ -1204,6 +1101,64 @@ function logout() { orderManager.logout(); }
 async function saveOrder() { await orderManager.saveOrder(); }
 async function confirmCloseOrder() { await orderManager.confirmCloseOrder(); }
 async function confirmDeleteOrder() { await orderManager.confirmDeleteOrder(); }
+
+// Экспорт
+function exportData() { 
+    new bootstrap.Modal(document.getElementById('exportModal')).show(); 
+}
+
+function exportToJSON() {
+    const data = orderManager.orders;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `xplay_orders_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    bootstrap.Modal.getInstance(document.getElementById('exportModal')).hide();
+    orderManager.showNotification('✅ Данные экспортированы в JSON', 'success');
+}
+
+function exportToCSV() {
+    const orders = orderManager.orders;
+    if (orders.length === 0) {
+        orderManager.showNotification('❌ Нет данных для экспорта', 'warning');
+        return;
+    }
+    
+    const headers = ['Номер заказа', 'Клиент', 'Телефон', 'Устройство', 'Модель', 
+                     'Неисправность', 'Статус', 'Стоимость', 'Итоговая', 'Дата приема', 'Дата выдачи'];
+    
+    let csv = headers.join(';') + '\n';
+    
+    orders.forEach(o => {
+        const row = [
+            o.ordernumber || '',
+            o.customername || '',
+            o.phone || '',
+            o.devicetype || '',
+            o.devicemodel || '',
+            (o.problem || '').replace(/;/g, ','),
+            o.status || '',
+            o.estimatedprice || '',
+            o.finalprice || '',
+            o.acceptancedate || '',
+            o.completiondate || ''
+        ];
+        csv += row.join(';') + '\n';
+    });
+    
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `xplay_orders_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    bootstrap.Modal.getInstance(document.getElementById('exportModal')).hide();
+    orderManager.showNotification('✅ Данные экспортированы в CSV', 'success');
+}
 
 // ========== ЗАПУСК ==========
 document.addEventListener('DOMContentLoaded', async () => {
