@@ -14,6 +14,22 @@ class OrderManager {
         this.checkAuth();
     }
 
+    // ========== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ТЕЛЕФОНА ==========
+    cleanPhoneNumber(phone) {
+        if (!phone) return '';
+        // Удаляем все кроме цифр и знака + в начале
+        let cleaned = phone.replace(/[^\d+]/g, '');
+        // Убеждаемся что номер начинается с +7 или 8
+        if (cleaned.startsWith('8')) {
+            cleaned = '+7' + cleaned.substring(1);
+        } else if (cleaned.startsWith('7')) {
+            cleaned = '+' + cleaned;
+        } else if (!cleaned.startsWith('+')) {
+            cleaned = '+7' + cleaned;
+        }
+        return cleaned;
+    }
+
     // ========== РАБОТА С ДАННЫМИ ==========
 
     async init() {
@@ -61,6 +77,11 @@ class OrderManager {
     async createOrder(orderData) {
         this.showLoading();
         try {
+            // Очищаем телефон перед отправкой
+            if (orderData.phone) {
+                orderData.phone = this.cleanPhoneNumber(orderData.phone);
+            }
+            
             const formData = new FormData();
             formData.append('action', 'createOrder');
             Object.keys(orderData).forEach(key => {
@@ -78,10 +99,12 @@ class OrderManager {
                 await this.loadOrders();
                 this.showNotification('✅ Заказ успешно создан!', 'success');
                 return true;
+            } else {
+                this.showNotification('❌ Ошибка от сервера: ' + (data.error || 'Неизвестная ошибка'), 'danger');
             }
         } catch (error) {
             console.error('Ошибка создания:', error);
-            this.showNotification('❌ Ошибка при создании заказа', 'danger');
+            this.showNotification('❌ Ошибка при создании заказа: ' + error.message, 'danger');
         }
         this.hideLoading();
         return false;
@@ -90,6 +113,11 @@ class OrderManager {
     async updateOrder(id, updates) {
         this.showLoading();
         try {
+            // Очищаем телефон, если он есть в обновлениях
+            if (updates.phone) {
+                updates.phone = this.cleanPhoneNumber(updates.phone);
+            }
+            
             const formData = new FormData();
             formData.append('action', 'updateOrder');
             formData.append('id', id);
@@ -106,10 +134,12 @@ class OrderManager {
                 await this.loadOrders();
                 this.showNotification('✅ Заказ обновлен', 'success');
                 return true;
+            } else {
+                this.showNotification('❌ Ошибка от сервера: ' + (data.error || 'Неизвестная ошибка'), 'danger');
             }
         } catch (error) {
             console.error('Ошибка обновления:', error);
-            this.showNotification('❌ Ошибка обновления', 'danger');
+            this.showNotification('❌ Ошибка обновления: ' + error.message, 'danger');
         }
         this.hideLoading();
         return false;
@@ -330,11 +360,20 @@ class OrderManager {
 
     searchOrders(query) {
         query = query.toLowerCase().trim();
-        return this.orders.filter(o => 
-            (o.phone && o.phone.toLowerCase().includes(query)) ||
-            (o.customername && o.customername.toLowerCase().includes(query)) ||
-            (o.ordernumber && o.ordernumber.toLowerCase().includes(query))
-        );
+        // Очищаем запрос от форматирования для поиска
+        const cleanQuery = this.cleanPhoneNumber(query);
+        
+        return this.orders.filter(o => {
+            const phone = o.phone ? o.phone.toLowerCase() : '';
+            const cleanPhone = this.cleanPhoneNumber(phone);
+            const customerName = o.customername ? o.customername.toLowerCase() : '';
+            const orderNumber = o.ordernumber ? o.ordernumber.toLowerCase() : '';
+            
+            return phone.includes(query) || 
+                   cleanPhone.includes(cleanQuery) ||
+                   customerName.includes(query) || 
+                   orderNumber.includes(query);
+        });
     }
 
     getOrderById(id) {
