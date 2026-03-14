@@ -322,7 +322,7 @@ class OrderManager {
         // Создаем окно для печати
         const printWindow = window.open('', '_blank');
         
-        // Формируем HTML для печати
+        // Формируем HTML для печати с правильными размерами для А4
         const html = `
             <!DOCTYPE html>
             <html>
@@ -330,161 +330,295 @@ class OrderManager {
                 <title>Договор №${order.ordernumber}</title>
                 <meta charset="utf-8">
                 <style>
-                    body { 
-                        font-family: 'Times New Roman', serif; 
-                        margin: 20px;
-                        line-height: 1.4;
+                    /* Сброс отступов для печати */
+                    * {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
                     }
+                    
+                    /* Настройки страницы для А4 */
+                    @page {
+                        size: A4;
+                        margin: 1cm;
+                    }
+                    
+                    body {
+                        font-family: 'Times New Roman', Times, serif;
+                        font-size: 10pt; /* Уменьшенный базовый шрифт */
+                        line-height: 1.2;
+                        color: #000;
+                        background: #fff;
+                        width: 100%;
+                    }
+                    
+                    /* Контейнер для всего договора */
+                    .contract {
+                        max-width: 100%;
+                        margin: 0 auto;
+                    }
+                    
+                    /* Шапка */
                     .header {
                         text-align: center;
-                        margin-bottom: 20px;
-                        border-bottom: 2px solid #000;
-                        padding-bottom: 10px;
+                        margin-bottom: 10px;
+                        border-bottom: 1px solid #000;
+                        padding-bottom: 5px;
                     }
+                    
                     .header h1 {
+                        font-size: 14pt;
+                        font-weight: bold;
                         margin: 0;
-                        font-size: 24px;
                     }
+                    
                     .header p {
-                        margin: 5px 0;
-                        font-size: 14px;
+                        font-size: 10pt;
+                        margin: 2px 0;
                     }
+                    
+                    /* Номер договора */
                     .contract-number {
                         text-align: center;
-                        font-size: 18px;
+                        font-size: 12pt;
                         font-weight: bold;
-                        margin: 20px 0;
+                        margin: 10px 0;
                     }
+                    
+                    /* Таблица */
                     table {
                         width: 100%;
                         border-collapse: collapse;
-                        margin: 20px 0;
+                        margin: 10px 0;
+                        font-size: 9pt;
                     }
+                    
                     td {
-                        padding: 8px;
-                        border: 1px solid #ddd;
+                        padding: 4px 6px;
+                        border: 1px solid #000;
+                        vertical-align: top;
                     }
+                    
                     td:first-child {
                         font-weight: bold;
                         width: 30%;
-                        background: #f5f5f5;
+                        background: #f0f0f0;
                     }
+                    
+                    /* Условия */
                     .conditions {
-                        margin: 20px 0;
-                        font-size: 12px;
-                        line-height: 1.3;
+                        margin: 10px 0;
+                        font-size: 8pt;
+                        line-height: 1.1;
+                        text-align: justify;
                     }
+                    
+                    .conditions h6 {
+                        font-size: 9pt;
+                        font-weight: bold;
+                        margin: 5px 0 2px 0;
+                    }
+                    
+                    /* Подписи */
                     .signature {
-                        margin-top: 40px;
+                        margin-top: 15px;
                         display: flex;
                         justify-content: space-between;
+                        font-size: 9pt;
                     }
+                    
                     .signature-line {
-                        border-top: 1px solid #000;
-                        width: 250px;
-                        margin-top: 40px;
+                        margin-top: 5px;
                     }
+                    
+                    /* Линия отреза */
                     .cut-line {
                         text-align: center;
-                        margin: 30px 0;
+                        margin: 15px 0 10px 0;
                         color: #666;
-                        border-top: 2px dashed #999;
-                        padding-top: 10px;
+                        border-top: 1px dashed #999;
+                        padding-top: 5px;
+                        font-size: 9pt;
+                        font-style: italic;
                     }
+                    
+                    /* Копия */
                     .copy {
                         text-align: center;
-                        font-style: italic;
-                        color: #666;
-                        margin: 20px 0;
+                        font-weight: bold;
+                        font-size: 11pt;
+                        margin: 15px 0 10px 0;
+                        text-transform: uppercase;
                     }
+                    
+                    /* Для печати */
                     @media print {
-                        body { margin: 0; }
-                        .no-print { display: none; }
+                        body {
+                            margin: 0;
+                            padding: 0;
+                        }
+                        .no-print {
+                            display: none;
+                        }
                     }
                 </style>
             </head>
             <body>
-                <!-- ОСНОВНАЯ ЧАСТЬ (КЛИЕНТУ) -->
-                <div class="header">
-                    <h1>Xplay сервис</h1>
-                    <p>Тула, Центральный переулок д.18</p>
-                    <p>+7(902)904-73-35</p>
+                <div class="contract">
+                    <!-- ===== ВЕРХНЯЯ ЧАСТЬ (ДЛЯ КЛИЕНТА) ===== -->
+                    <div class="header">
+                        <h1>Xplay сервис</h1>
+                        <p>Тула, Центральный переулок д.18</p>
+                        <p>+7(902)904-73-35</p>
+                    </div>
+                    
+                    <div class="contract-number">
+                        ОТРЫВНОЙ ТАЛОН (КЛИЕНТУ)<br>
+                        Договор № ${order.ordernumber || ''} от ${order.acceptancedate ? order.acceptancedate.split(' ')[0] : ''}
+                    </div>
+                    
+                    <table>
+                        <tr>
+                            <td>Клиент:</td>
+                            <td>${order.customername || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Телефон:</td>
+                            <td>${order.phone || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Устройство:</td>
+                            <td>${order.devicetype || ''} ${order.devicemodel || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Серийный номер:</td>
+                            <td>${order.serialnumber || 'Отсутствует'}</td>
+                        </tr>
+                        <tr>
+                            <td>Неисправность:</td>
+                            <td>${order.problem || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Примерная стоимость:</td>
+                            <td>${order.estimatedprice || 'Мастер уточнит'} ${order.estimatedprice !== 'Мастер уточнит' && order.estimatedprice !== 'мастер уточнит' ? 'руб.' : ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Предоплата:</td>
+                            <td>${order.prepayment === '-' || !order.prepayment ? 'нет' : order.prepayment}</td>
+                        </tr>
+                        <tr>
+                            <td>Гарантия:</td>
+                            <td>${order.warranty || '30 дней'}</td>
+                        </tr>
+                        <tr>
+                            <td>Дата приема:</td>
+                            <td>${order.acceptancedate || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Срок ремонта:</td>
+                            <td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td>
+                        </tr>
+                    </table>
+                    
+                    <div class="conditions">
+                        <h6>Условия:</h6>
+                        1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
+                        2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
+                        3. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ: 300 руб. - аксессуары, 800 руб. - игровые консоли.
+                    </div>
+                    
+                    <div class="signature">
+                        <div>Клиент: _________________________</div>
+                        <div>Мастер: _________________________</div>
+                    </div>
+                    
+                    <!-- ЛИНИЯ ОТРЕЗА -->
+                    <div class="cut-line">- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</div>
+                    <div style="text-align: center; font-size: 8pt; font-style: italic; margin-top: -8px;">(отрезать клиенту)</div>
+                    
+                    <!-- ===== НИЖНЯЯ ЧАСТЬ (ДЛЯ СЕРВИСА) ===== -->
+                    <div class="copy">КОПИЯ ДЛЯ СЕРВИСА</div>
+                    
+                    <div class="contract-number">
+                        Договор № ${order.ordernumber || ''} от ${order.acceptancedate ? order.acceptancedate.split(' ')[0] : ''}
+                    </div>
+                    
+                    <table>
+                        <tr>
+                            <td>Клиент:</td>
+                            <td>${order.customername || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Телефон:</td>
+                            <td>${order.phone || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Устройство:</td>
+                            <td>${order.devicetype || ''} ${order.devicemodel || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>S/N:</td>
+                            <td>${order.serialnumber || 'Отсутствует'}</td>
+                        </tr>
+                        <tr>
+                            <td>Неисправность:</td>
+                            <td>${order.problem || ''}</td>
+                        </tr>
+                        <tr>
+                            <td>Предоплата:</td>
+                            <td>${order.prepayment === '-' || !order.prepayment ? 'нет' : order.prepayment}</td>
+                        </tr>
+                        <tr>
+                            <td>Гарантия:</td>
+                            <td>${order.warranty || '30 дней'}</td>
+                        </tr>
+                        <tr>
+                            <td>Статус:</td>
+                            <td>${order.status || 'Принят'}</td>
+                        </tr>
+                        ${order.status === 'Выдан' ? `
+                        <tr>
+                            <td>Итоговая стоимость:</td>
+                            <td><strong>${order.finalprice || 0} руб.</strong></td>
+                        </tr>
+                        <tr>
+                            <td>Дата выдачи:</td>
+                            <td>${order.completiondate || ''}</td>
+                        </tr>
+                        ` : ''}
+                    </table>
+                    
+                    <div class="conditions" style="margin-top: 5px;">
+                        <h6>ДЛЯ ЗАМЕТОК:</h6>
+                        _________________________________________________________________<br>
+                        _________________________________________________________________<br>
+                        _________________________________________________________________<br>
+                    </div>
+                    
+                    <div class="signature" style="margin-top: 10px;">
+                        <div>Клиент: _________________________</div>
+                        <div>Мастер: _________________________</div>
+                    </div>
+                    
+                    <!-- Кнопка печати (не будет видна при печати) -->
+                    <div class="no-print" style="text-align: center; margin-top: 20px;">
+                        <button onclick="window.print()" style="padding: 8px 20px; font-size: 14px; cursor: pointer;">🖨️ Печать</button>
+                        <button onclick="window.close()" style="padding: 8px 20px; font-size: 14px; cursor: pointer;">✖️ Закрыть</button>
+                    </div>
                 </div>
                 
-                <div class="contract-number">
-                    ОТРЫВНОЙ ТАЛОН (КЛИЕНТУ)<br>
-                    Договор № ${order.ordernumber} от ${order.acceptancedate || ''}
-                </div>
-                
-                <table>
-                    <tr><td>Клиент:</td><td>${order.customername || ''}</td></tr>
-                    <tr><td>Телефон:</td><td>${order.phone || ''}</td></tr>
-                    <tr><td>Устройство:</td><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
-                    <tr><td>Серийный номер:</td><td>${order.serialnumber || 'Отсутствует'}</td></tr>
-                    <tr><td>Неисправность:</td><td>${order.problem || ''}</td></tr>
-                    <tr><td>Примерная стоимость:</td><td>${order.estimatedprice || 'Мастер уточнит'} ${order.estimatedprice !== 'Мастер уточнит' ? 'руб.' : ''}</td></tr>
-                    <tr><td>Предоплата:</td><td>${order.prepayment === '-' ? 'нет' : order.prepayment}</td></tr>
-                    <tr><td>Гарантия:</td><td>${order.warranty || '30 дней'}</td></tr>
-                    <tr><td>Дата приема:</td><td>${order.acceptancedate || ''}</td></tr>
-                    <tr><td>Срок ремонта:</td><td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td></tr>
-                </table>
-                
-                <div class="conditions">
-                    <strong>Условия:</strong><br>
-                    1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
-                    2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
-                    3. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ в размере 300 рублей - аксессуары, 800 рублей - игровые консоли.
-                </div>
-                
-                <div class="signature">
-                    <div>Клиент: _________________________</div>
-                    <div>Мастер: _________________________</div>
-                </div>
-                
-                <div class="cut-line">--- отрезать клиенту ---</div>
-                
-                <!-- КОПИЯ ДЛЯ СЕРВИСА -->
-                <div class="copy">КОПИЯ ДЛЯ СЕРВИСА</div>
-                
-                <div class="contract-number">
-                    Договор № ${order.ordernumber} от ${order.acceptancedate || ''}
-                </div>
-                
-                <table>
-                    <tr><td>Клиент:</td><td>${order.customername || ''}</td></tr>
-                    <tr><td>Телефон:</td><td>${order.phone || ''}</td></tr>
-                    <tr><td>Устройство:</td><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
-                    <tr><td>S/N:</td><td>${order.serialnumber || 'Отсутствует'}</td></tr>
-                    <tr><td>Неисправность:</td><td>${order.problem || ''}</td></tr>
-                    <tr><td>Предоплата:</td><td>${order.prepayment === '-' ? 'нет' : order.prepayment}</td></tr>
-                    <tr><td>Гарантия:</td><td>${order.warranty || '30 дней'}</td></tr>
-                    <tr><td>Статус:</td><td>${order.status || 'Принят'}</td></tr>
-                    ${order.status === 'Выдан' ? `
-                        <tr><td>Итоговая стоимость:</td><td>${order.finalprice || 0} руб.</td></tr>
-                        <tr><td>Дата выдачи:</td><td>${order.completiondate || ''}</td></tr>
-                    ` : ''}
-                </table>
-                
-                <div class="signature">
-                    <div>Клиент: _________________________</div>
-                    <div>Мастер: _________________________</div>
-                </div>
-                
-                <div class="no-print" style="text-align: center; margin-top: 20px;">
-                    <button onclick="window.print()" style="padding: 10px 20px;">Печать</button>
-                    <button onclick="window.close()" style="padding: 10px 20px;">Закрыть</button>
-                </div>
+                <script>
+                    // Автоматически открыть диалог печати через небольшую задержку
+                    setTimeout(() => {
+                        window.print();
+                    }, 500);
+                </script>
             </body>
             </html>
         `;
         
         printWindow.document.write(html);
         printWindow.document.close();
-        
-        // Автоматически открыть диалог печати через небольшую задержку
-        setTimeout(() => {
-            printWindow.print();
-        }, 500);
     }
 
     // ========== ОТОБРАЖЕНИЕ ИНТЕРФЕЙСА ==========
