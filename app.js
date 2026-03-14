@@ -29,7 +29,8 @@ class OrderManager {
             const data = await response.json();
             
             if (data.success) {
-                this.orders = data.orders || [];
+                // Нормализуем данные перед сохранением
+                this.orders = (data.orders || []).map(order => this.normalizeOrder(order));
                 this.saveToCache();
                 this.hideLoading();
             } else {
@@ -43,6 +44,28 @@ class OrderManager {
         this.hideLoading();
     }
 
+    // Нормализация данных заказа (преобразование всех полей в строки)
+    normalizeOrder(order) {
+        if (!order) return {};
+        
+        const normalized = {};
+        
+        // Преобразуем каждое поле в строку
+        Object.keys(order).forEach(key => {
+            const value = order[key];
+            if (value === null || value === undefined) {
+                normalized[key] = '';
+            } else if (typeof value === 'object') {
+                // Если вдруг пришел объект, преобразуем в JSON строку
+                normalized[key] = JSON.stringify(value);
+            } else {
+                normalized[key] = String(value);
+            }
+        });
+        
+        return normalized;
+    }
+
     saveToCache() {
         localStorage.setItem('xplay_orders_cache', JSON.stringify({
             orders: this.orders,
@@ -53,24 +76,41 @@ class OrderManager {
     loadFromCache() {
         const cached = localStorage.getItem('xplay_orders_cache');
         if (cached) {
-            const data = JSON.parse(cached);
-            this.orders = data.orders;
+            try {
+                const data = JSON.parse(cached);
+                this.orders = (data.orders || []).map(order => this.normalizeOrder(order));
+            } catch (e) {
+                console.error('Ошибка загрузки из кэша:', e);
+                this.orders = [];
+            }
         }
+    }
+
+    // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕКСТА ==========
+
+    safeString(value) {
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'object') return JSON.stringify(value);
+        return String(value);
+    }
+
+    safeSubstring(value, start, length) {
+        const str = this.safeString(value);
+        if (str.length <= start) return '';
+        return str.substring(start, length ? start + length : undefined);
     }
 
     // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕЛЕФОНА ==========
 
     cleanPhoneNumber(phone) {
-        if (!phone) return '';
-        
-        // Преобразуем в строку, если пришло не строковое значение
-        phone = String(phone);
+        const phoneStr = this.safeString(phone);
+        if (!phoneStr) return '';
         
         // Сохраняем оригинал для отладки
-        const original = phone;
+        const original = phoneStr;
         
         // Удаляем все кроме цифр и знака +
-        let cleaned = phone.replace(/[^\d+]/g, '');
+        let cleaned = phoneStr.replace(/[^\d+]/g, '');
         
         // Если начинается с 8, заменяем на +7
         if (cleaned.startsWith('8')) {
@@ -99,19 +139,16 @@ class OrderManager {
     }
 
     formatPhoneNumber(phone) {
-        // Если phone не определен, возвращаем пустую строку
-        if (!phone) return '';
-        
-        // Преобразуем в строку, если пришло не строковое значение
-        phone = String(phone);
+        const phoneStr = this.safeString(phone);
+        if (!phoneStr) return '';
         
         // Если уже отформатирован, возвращаем как есть
-        if (phone.includes('(') || phone.includes('-')) {
-            return phone;
+        if (phoneStr.includes('(') || phoneStr.includes('-')) {
+            return phoneStr;
         }
         
         // Форматируем +7XXXXXXXXXX в +7 (XXX) XXX-XX-XX
-        const cleaned = phone.replace(/\D/g, '');
+        const cleaned = phoneStr.replace(/\D/g, '');
         
         // Для российских номеров (+7)
         if (cleaned.length === 11 && cleaned.startsWith('7')) {
@@ -126,7 +163,7 @@ class OrderManager {
             return `+7 (${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7, 9)}-${cleaned.substring(9, 11)}`;
         }
         
-        return phone;
+        return phoneStr;
     }
 
     // ========== РАБОТА С ЗАКАЗАМИ ==========
@@ -143,7 +180,7 @@ class OrderManager {
             const formData = new FormData();
             formData.append('action', 'createOrder');
             Object.keys(orderData).forEach(key => {
-                formData.append(key, orderData[key]);
+                formData.append(key, this.safeString(orderData[key]));
             });
             
             const response = await fetch(this.apiUrl, {
@@ -154,7 +191,7 @@ class OrderManager {
             const data = await response.json();
             
             if (data.success) {
-                await this.loadOrders();
+                await this.loadOrders(); // Перезагружаем заказы
                 this.showNotification('✅ Заказ успешно создан!', 'success');
                 return true;
             } else {
@@ -186,7 +223,7 @@ class OrderManager {
             const data = await response.json();
             
             if (data.success) {
-                await this.loadOrders();
+                await this.loadOrders(); // Перезагружаем заказы
                 this.showNotification('✅ Заказ обновлен', 'success');
                 return true;
             }
@@ -405,35 +442,37 @@ class OrderManager {
     // ========== ПОИСК И ФИЛЬТРАЦИЯ ==========
 
     getActiveOrders() {
-        return this.orders.filter(o => o.status && o.status !== 'Выдан');
+        return this.orders.filter(o => this.safeString(o.status) !== 'Выдан');
     }
 
     getCompletedOrders(months = 1) {
         const cutoff = new Date();
         cutoff.setMonth(cutoff.getMonth() - months);
         
-        return this.orders.filter(o => 
-            o.status === 'Выдан' && new Date(o.createdat) >= cutoff
-        );
+        return this.orders.filter(o => {
+            const status = this.safeString(o.status);
+            const created = o.createdat ? new Date(o.createdat) : new Date(0);
+            return status === 'Выдан' && created >= cutoff;
+        });
     }
 
     searchOrders(query) {
-        query = query.toLowerCase().trim();
+        const queryStr = this.safeString(query).toLowerCase().trim();
         
         // Очищаем запрос для поиска
-        const cleanQuery = query.replace(/[^\d+]/g, '');
+        const cleanQuery = queryStr.replace(/[^\d+]/g, '');
         
         return this.orders.filter(o => {
-            const phone = String(o.phone || '').toLowerCase();
+            const phone = this.safeString(o.phone).toLowerCase();
             const cleanPhone = phone.replace(/[^\d+]/g, '');
-            const customerName = String(o.customername || '').toLowerCase();
-            const orderNumber = String(o.ordernumber || '').toLowerCase();
+            const customerName = this.safeString(o.customername).toLowerCase();
+            const orderNumber = this.safeString(o.ordernumber).toLowerCase();
             
             // Ищем по оригинальному запросу и по очищенному
-            return phone.includes(query) || 
+            return phone.includes(queryStr) || 
                    cleanPhone.includes(cleanQuery) ||
-                   customerName.includes(query) || 
-                   orderNumber.includes(query);
+                   customerName.includes(queryStr) || 
+                   orderNumber.includes(queryStr);
         });
     }
 
@@ -442,31 +481,36 @@ class OrderManager {
     }
 
     getOrderByNumber(orderNumber) {
-        return this.orders.find(o => o.ordernumber === orderNumber);
+        const searchNumber = this.safeString(orderNumber);
+        return this.orders.find(o => this.safeString(o.ordernumber) === searchNumber);
     }
 
     getStatistics() {
         const total = this.orders.length;
         const active = this.getActiveOrders().length;
-        const completed = this.orders.filter(o => o.status === 'Выдан').length;
+        const completed = this.orders.filter(o => this.safeString(o.status) === 'Выдан').length;
         
         const totalSum = this.orders
-            .filter(o => o.status === 'Выдан' && o.finalprice)
+            .filter(o => this.safeString(o.status) === 'Выдан' && o.finalprice)
             .reduce((sum, o) => sum + (parseInt(o.finalprice) || 0), 0);
         
         const monthly = {};
         this.orders.forEach(o => {
             if (o.createdat) {
-                const month = new Date(o.createdat).toLocaleString('ru-RU', { 
-                    month: 'long', 
-                    year: 'numeric' 
-                });
-                if (!monthly[month]) {
-                    monthly[month] = { count: 0, sum: 0 };
-                }
-                monthly[month].count++;
-                if (o.status === 'Выдан' && o.finalprice) {
-                    monthly[month].sum += parseInt(o.finalprice) || 0;
+                try {
+                    const month = new Date(o.createdat).toLocaleString('ru-RU', { 
+                        month: 'long', 
+                        year: 'numeric' 
+                    });
+                    if (!monthly[month]) {
+                        monthly[month] = { count: 0, sum: 0 };
+                    }
+                    monthly[month].count++;
+                    if (this.safeString(o.status) === 'Выдан' && o.finalprice) {
+                        monthly[month].sum += parseInt(o.finalprice) || 0;
+                    }
+                } catch (e) {
+                    console.error('Ошибка обработки даты:', e);
                 }
             }
         });
@@ -483,7 +527,7 @@ class OrderManager {
             <!DOCTYPE html>
             <html>
             <head>
-                <title>Договор №${order.ordernumber}</title>
+                <title>Договор №${this.safeString(order.ordernumber)}</title>
                 <meta charset="utf-8">
                 <style>
                     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -575,19 +619,19 @@ class OrderManager {
                     
                     <div class="contract-number">
                         ОТРЫВНОЙ ТАЛОН (КЛИЕНТУ)<br>
-                        Договор № ${order.ordernumber || ''} от ${order.acceptancedate ? order.acceptancedate.split(' ')[0] : ''}
+                        Договор № ${this.safeString(order.ordernumber)} от ${this.safeString(order.acceptancedate).split(' ')[0] || ''}
                     </div>
                     
                     <table>
-                        <tr><td>Клиент:</td><td>${order.customername || ''}</td></tr>
-                        <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone) || ''}</td></tr>
-                        <tr><td>Устройство:</td><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
-                        <tr><td>Серийный номер:</td><td>${order.serialnumber || 'Отсутствует'}</td></tr>
-                        <tr><td>Неисправность:</td><td>${order.problem || ''}</td></tr>
-                        <tr><td>Примерная стоимость:</td><td>${order.estimatedprice || 'Мастер уточнит'} ${order.estimatedprice !== 'Мастер уточнит' && order.estimatedprice !== 'мастер уточнит' ? 'руб.' : ''}</td></tr>
-                        <tr><td>Предоплата:</td><td>${order.prepayment === '-' || !order.prepayment ? 'нет' : order.prepayment}</td></tr>
-                        <tr><td>Гарантия:</td><td>${order.warranty || '30 дней'}</td></tr>
-                        <tr><td>Дата приема:</td><td>${order.acceptancedate || ''}</td></tr>
+                        <tr><td>Клиент:</td><td>${this.safeString(order.customername)}</td></tr>
+                        <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone)}</td></tr>
+                        <tr><td>Устройство:</td><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
+                        <tr><td>Серийный номер:</td><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
+                        <tr><td>Неисправность:</td><td>${this.safeString(order.problem)}</td></tr>
+                        <tr><td>Примерная стоимость:</td><td>${this.safeString(order.estimatedprice)} ${!this.safeString(order.estimatedprice).includes('уточнит') ? 'руб.' : ''}</td></tr>
+                        <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
+                        <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
+                        <tr><td>Дата приема:</td><td>${this.safeString(order.acceptancedate)}</td></tr>
                         <tr><td>Срок ремонта:</td><td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td></tr>
                     </table>
                     
@@ -609,21 +653,21 @@ class OrderManager {
                     <div class="copy">КОПИЯ ДЛЯ СЕРВИСА</div>
                     
                     <div class="contract-number">
-                        Договор № ${order.ordernumber || ''} от ${order.acceptancedate ? order.acceptancedate.split(' ')[0] : ''}
+                        Договор № ${this.safeString(order.ordernumber)} от ${this.safeString(order.acceptancedate).split(' ')[0] || ''}
                     </div>
                     
                     <table>
-                        <tr><td>Клиент:</td><td>${order.customername || ''}</td></tr>
-                        <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone) || ''}</td></tr>
-                        <tr><td>Устройство:</td><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
-                        <tr><td>S/N:</td><td>${order.serialnumber || 'Отсутствует'}</td></tr>
-                        <tr><td>Неисправность:</td><td>${order.problem || ''}</td></tr>
-                        <tr><td>Предоплата:</td><td>${order.prepayment === '-' || !order.prepayment ? 'нет' : order.prepayment}</td></tr>
-                        <tr><td>Гарантия:</td><td>${order.warranty || '30 дней'}</td></tr>
-                        <tr><td>Статус:</td><td>${order.status || 'Принят'}</td></tr>
-                        ${order.status === 'Выдан' ? `
-                        <tr><td>Итоговая стоимость:</td><td><strong>${order.finalprice || 0} руб.</strong></td></tr>
-                        <tr><td>Дата выдачи:</td><td>${order.completiondate || ''}</td></tr>
+                        <tr><td>Клиент:</td><td>${this.safeString(order.customername)}</td></tr>
+                        <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone)}</td></tr>
+                        <tr><td>Устройство:</td><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
+                        <tr><td>S/N:</td><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
+                        <tr><td>Неисправность:</td><td>${this.safeString(order.problem)}</td></tr>
+                        <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
+                        <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
+                        <tr><td>Статус:</td><td>${this.safeString(order.status) || 'Принят'}</td></tr>
+                        ${this.safeString(order.status) === 'Выдан' ? `
+                        <tr><td>Итоговая стоимость:</td><td><strong>${this.safeString(order.finalprice) || 0} руб.</strong></td></tr>
+                        <tr><td>Дата выдачи:</td><td>${this.safeString(order.completiondate)}</td></tr>
                         ` : ''}
                     </table>
                     
@@ -668,37 +712,37 @@ class OrderManager {
         const title = document.getElementById('viewOrderTitle');
         const content = document.getElementById('viewOrderContent');
         
-        title.textContent = `Заказ №${order.ordernumber || 'Без номера'}`;
+        title.textContent = `Заказ №${this.safeString(order.ordernumber) || 'Без номера'}`;
         
         let html = `
             <div id="printableOrder">
                 <div class="text-center mb-4">
                     <h4>Xplay сервис</h4>
                     <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
-                    <h5 class="text-primary">Договор № ${order.ordernumber || ''}</h5>
-                    <p>от ${order.acceptancedate || ''}</p>
+                    <h5 class="text-primary">Договор № ${this.safeString(order.ordernumber)}</h5>
+                    <p>от ${this.safeString(order.acceptancedate)}</p>
                 </div>
                 
                 <table class="table table-bordered">
-                    <tr><th style="width: 40%">Клиент:</th><td>${order.customername || ''}</td></tr>
-                    <tr><th>Телефон:</th><td>${this.formatPhoneNumber(order.phone) || ''}</td></tr>
-                    <tr><th>Устройство:</th><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
-                    <tr><th>Серийный номер:</th><td>${order.serialnumber || 'Отсутствует'}</td></tr>
-                    <tr><th>Неисправность:</th><td>${order.problem || ''}</td></tr>
-                    <tr><th>Примерная стоимость:</th><td>${order.estimatedprice || 'Мастер уточнит'} ${order.estimatedprice !== 'Мастер уточнит' ? '₽' : ''}</td></tr>
-                    <tr><th>Предоплата:</th><td>${order.prepayment === '-' ? 'нет' : order.prepayment}</td></tr>
-                    <tr><th>Гарантия:</th><td>${order.warranty || '30 дней'}</td></tr>
+                    <tr><th style="width: 40%">Клиент:</th><td>${this.safeString(order.customername)}</td></tr>
+                    <tr><th>Телефон:</th><td>${this.formatPhoneNumber(order.phone)}</td></tr>
+                    <tr><th>Устройство:</th><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
+                    <tr><th>Серийный номер:</th><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
+                    <tr><th>Неисправность:</th><td>${this.safeString(order.problem)}</td></tr>
+                    <tr><th>Примерная стоимость:</th><td>${this.safeString(order.estimatedprice)} ${!this.safeString(order.estimatedprice).includes('уточнит') ? '₽' : ''}</td></tr>
+                    <tr><th>Предоплата:</th><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
+                    <tr><th>Гарантия:</th><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
                     <tr><th>Статус:</th><td>
-                        <span class="status-badge ${order.status === 'Выдан' ? 'status-completed' : 'status-active'}">
-                            ${order.status || 'Новый'}
+                        <span class="status-badge ${this.safeString(order.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
+                            ${this.safeString(order.status) || 'Новый'}
                         </span>
                     </td></tr>
         `;
         
-        if (order.status === 'Выдан') {
+        if (this.safeString(order.status) === 'Выдан') {
             html += `
-                <tr><th>Итоговая стоимость:</th><td><strong>${order.finalprice || 0} ₽</strong></td></tr>
-                <tr><th>Дата выдачи:</th><td>${order.completiondate || ''}</td></tr>
+                <tr><th>Итоговая стоимость:</th><td><strong>${this.safeString(order.finalprice) || 0} ₽</strong></td></tr>
+                <tr><th>Дата выдачи:</th><td>${this.safeString(order.completiondate)}</td></tr>
             `;
         }
         
@@ -735,7 +779,7 @@ class OrderManager {
         printBtn.onclick = () => this.printOrder(order);
         
         if (this.isAdmin) {
-            if (order.status !== 'Выдан') {
+            if (this.safeString(order.status) !== 'Выдан') {
                 closeBtn.style.display = 'inline-block';
                 closeBtn.onclick = () => this.showCloseOrderForm(order);
                 restoreBtn.style.display = 'none';
@@ -757,11 +801,11 @@ class OrderManager {
 
     showCloseOrderForm(order) {
         document.getElementById('closeOrderId').value = order.id;
-        document.getElementById('closeCustomerName').value = order.customername || '';
-        document.getElementById('closePhone').value = this.formatPhoneNumber(order.phone) || '';
-        document.getElementById('closeDevice').value = `${order.devicetype || ''} ${order.devicemodel || ''}`;
-        document.getElementById('closeProblem').value = order.problem || '';
-        document.getElementById('closeEstimatedPrice').value = order.estimatedprice || 'Мастер уточнит';
+        document.getElementById('closeCustomerName').value = this.safeString(order.customername);
+        document.getElementById('closePhone').value = this.formatPhoneNumber(order.phone);
+        document.getElementById('closeDevice').value = `${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}`;
+        document.getElementById('closeProblem').value = this.safeString(order.problem);
+        document.getElementById('closeEstimatedPrice').value = this.safeString(order.estimatedprice) || 'Мастер уточнит';
         document.getElementById('finalPrice').value = '';
         
         new bootstrap.Modal(document.getElementById('closeOrderModal')).show();
@@ -869,11 +913,11 @@ class OrderManager {
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <strong>${o.ordernumber || 'Без номера'}</strong><br>
-                            <small>${o.customername || ''} | ${formattedPhone || ''}</small>
+                            <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong><br>
+                            <small>${this.safeString(o.customername)} | ${formattedPhone}</small>
                         </div>
-                        <span class="status-badge ${o.status === 'Выдан' ? 'status-completed' : 'status-active'}">
-                            ${o.status || 'Новый'}
+                        <span class="status-badge ${this.safeString(o.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
+                            ${this.safeString(o.status) || 'Новый'}
                         </span>
                     </div>
                 </div>
@@ -970,29 +1014,32 @@ class OrderManager {
         
         return orders.map(o => {
             const formattedPhone = this.formatPhoneNumber(o.phone);
+            const problem = this.safeString(o.problem);
+            const problemShort = problem.length > 50 ? problem.substring(0, 47) + '...' : problem;
+            
             return `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
                     <div class="row">
                         <div class="col-md-8">
-                            <strong class="text-primary">${o.ordernumber || 'Без номера'}</strong>
+                            <strong class="text-primary">${this.safeString(o.ordernumber) || 'Без номера'}</strong>
                             <div class="mt-2">
                                 <small>
-                                    <i class="bi bi-person"></i> ${o.customername || ''}<br>
-                                    <i class="bi bi-telephone"></i> ${formattedPhone || ''}<br>
-                                    <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
+                                    <i class="bi bi-person"></i> ${this.safeString(o.customername)}<br>
+                                    <i class="bi bi-telephone"></i> ${formattedPhone}<br>
+                                    <i class="bi bi-controller"></i> ${this.safeString(o.devicetype)} ${this.safeString(o.devicemodel)}
                                 </small>
                             </div>
                             <div class="mt-2">
-                                <span class="badge bg-info">${(o.problem || '').substring(0, 50)}${(o.problem || '').length > 50 ? '...' : ''}</span>
+                                <span class="badge bg-info">${problemShort}</span>
                             </div>
                         </div>
                         <div class="col-md-4 text-end">
                             <span class="status-badge status-active d-inline-block mb-2">
-                                ${o.status || 'Новый'}
+                                ${this.safeString(o.status) || 'Новый'}
                             </span>
-                            <div><small>📅 ${o.acceptancedate || ''}</small></div>
-                            ${o.estimatedprice && o.estimatedprice !== 'Мастер уточнит' && o.estimatedprice !== 'мастер уточнит' ? `
-                                <div class="mt-2"><small>💰 ${o.estimatedprice} ₽</small></div>
+                            <div><small>📅 ${this.safeString(o.acceptancedate)}</small></div>
+                            ${this.safeString(o.estimatedprice) && !this.safeString(o.estimatedprice).includes('уточнит') ? `
+                                <div class="mt-2"><small>💰 ${this.safeString(o.estimatedprice)} ₽</small></div>
                             ` : ''}
                         </div>
                     </div>
@@ -1012,20 +1059,20 @@ class OrderManager {
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
                     <div class="row">
                         <div class="col-md-7">
-                            <strong class="text-primary">${o.ordernumber || 'Без номера'}</strong>
+                            <strong class="text-primary">${this.safeString(o.ordernumber) || 'Без номера'}</strong>
                             <div class="mt-2">
                                 <small>
-                                    <i class="bi bi-person"></i> ${o.customername || ''}<br>
-                                    <i class="bi bi-telephone"></i> ${formattedPhone || ''}<br>
-                                    <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
+                                    <i class="bi bi-person"></i> ${this.safeString(o.customername)}<br>
+                                    <i class="bi bi-telephone"></i> ${formattedPhone}<br>
+                                    <i class="bi bi-controller"></i> ${this.safeString(o.devicetype)} ${this.safeString(o.devicemodel)}
                                 </small>
                             </div>
                         </div>
                         <div class="col-md-5 text-end">
-                            <span class="status-badge status-completed d-inline-block mb-2">${o.status || 'Выдан'}</span>
-                            <div><small>📅 Принят: ${o.acceptancedate || ''}</small></div>
-                            <div><small>✅ Выдан: ${o.completiondate || ''}</small></div>
-                            <div class="mt-2"><strong>💰 ${o.finalprice || 0} ₽</strong></div>
+                            <span class="status-badge status-completed d-inline-block mb-2">${this.safeString(o.status) || 'Выдан'}</span>
+                            <div><small>📅 Принят: ${this.safeString(o.acceptancedate)}</small></div>
+                            <div><small>✅ Выдан: ${this.safeString(o.completiondate)}</small></div>
+                            <div class="mt-2"><strong>💰 ${this.safeString(o.finalprice) || 0} ₽</strong></div>
                         </div>
                     </div>
                 </div>
@@ -1110,13 +1157,13 @@ class OrderManager {
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <strong>${o.ordernumber || 'Без номера'}</strong>
+                            <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong>
                             <br>
-                            <small>${o.customername || ''} | ${formattedPhone || ''}</small>
+                            <small>${this.safeString(o.customername)} | ${formattedPhone}</small>
                         </div>
                         <div class="text-end">
-                            <span class="status-badge ${o.status === 'Выдан' ? 'status-completed' : 'status-active'}">
-                                ${o.status || 'Новый'}
+                            <span class="status-badge ${this.safeString(o.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
+                                ${this.safeString(o.status) || 'Новый'}
                             </span>
                         </div>
                     </div>
@@ -1151,7 +1198,7 @@ class OrderManager {
         
         const orderData = {
             customerName: document.getElementById('customerName').value,
-            phone: cleanedPhone, // Используем очищенную версию
+            phone: cleanedPhone,
             deviceType: document.getElementById('deviceType').value,
             deviceModel: document.getElementById('deviceModel').value,
             serialNumber: document.getElementById('serialNumber').value || 'Отсутствует',
@@ -1166,6 +1213,7 @@ class OrderManager {
         const success = await this.createOrder(orderData);
         if (success) {
             bootstrap.Modal.getInstance(document.getElementById('orderModal')).hide();
+            // После успешного создания сразу показываем активные заказы
             this.showActiveOrders();
         }
     }
