@@ -63,6 +63,9 @@ class OrderManager {
     cleanPhoneNumber(phone) {
         if (!phone) return '';
         
+        // Преобразуем в строку, если пришло не строковое значение
+        phone = String(phone);
+        
         // Сохраняем оригинал для отладки
         const original = phone;
         
@@ -96,7 +99,11 @@ class OrderManager {
     }
 
     formatPhoneNumber(phone) {
+        // Если phone не определен, возвращаем пустую строку
         if (!phone) return '';
+        
+        // Преобразуем в строку, если пришло не строковое значение
+        phone = String(phone);
         
         // Если уже отформатирован, возвращаем как есть
         if (phone.includes('(') || phone.includes('-')) {
@@ -417,10 +424,10 @@ class OrderManager {
         const cleanQuery = query.replace(/[^\d+]/g, '');
         
         return this.orders.filter(o => {
-            const phone = (o.phone || '').toLowerCase();
+            const phone = String(o.phone || '').toLowerCase();
             const cleanPhone = phone.replace(/[^\d+]/g, '');
-            const customerName = (o.customername || '').toLowerCase();
-            const orderNumber = (o.ordernumber || '').toLowerCase();
+            const customerName = String(o.customername || '').toLowerCase();
+            const orderNumber = String(o.ordernumber || '').toLowerCase();
             
             // Ищем по оригинальному запросу и по очищенному
             return phone.includes(query) || 
@@ -856,19 +863,22 @@ class OrderManager {
             return '<p class="text-muted">Нет заказов</p>';
         }
         
-        return recent.map(o => `
-            <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <strong>${o.ordernumber || 'Без номера'}</strong><br>
-                        <small>${o.customername || ''} | ${this.formatPhoneNumber(o.phone) || ''}</small>
+        return recent.map(o => {
+            const formattedPhone = this.formatPhoneNumber(o.phone);
+            return `
+                <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>${o.ordernumber || 'Без номера'}</strong><br>
+                            <small>${o.customername || ''} | ${formattedPhone || ''}</small>
+                        </div>
+                        <span class="status-badge ${o.status === 'Выдан' ? 'status-completed' : 'status-active'}">
+                            ${o.status || 'Новый'}
+                        </span>
                     </div>
-                    <span class="status-badge ${o.status === 'Выдан' ? 'status-completed' : 'status-active'}">
-                        ${o.status || 'Новый'}
-                    </span>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
     renderMonthlyStats(monthly) {
@@ -958,34 +968,37 @@ class OrderManager {
             return '<p class="text-center py-4">Нет заказов</p>';
         }
         
-        return orders.map(o => `
-            <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
-                <div class="row">
-                    <div class="col-md-8">
-                        <strong class="text-primary">${o.ordernumber || 'Без номера'}</strong>
-                        <div class="mt-2">
-                            <small>
-                                <i class="bi bi-person"></i> ${o.customername || ''}<br>
-                                <i class="bi bi-telephone"></i> ${this.formatPhoneNumber(o.phone) || ''}<br>
-                                <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
-                            </small>
+        return orders.map(o => {
+            const formattedPhone = this.formatPhoneNumber(o.phone);
+            return `
+                <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <strong class="text-primary">${o.ordernumber || 'Без номера'}</strong>
+                            <div class="mt-2">
+                                <small>
+                                    <i class="bi bi-person"></i> ${o.customername || ''}<br>
+                                    <i class="bi bi-telephone"></i> ${formattedPhone || ''}<br>
+                                    <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
+                                </small>
+                            </div>
+                            <div class="mt-2">
+                                <span class="badge bg-info">${(o.problem || '').substring(0, 50)}${(o.problem || '').length > 50 ? '...' : ''}</span>
+                            </div>
                         </div>
-                        <div class="mt-2">
-                            <span class="badge bg-info">${(o.problem || '').substring(0, 50)}${(o.problem || '').length > 50 ? '...' : ''}</span>
+                        <div class="col-md-4 text-end">
+                            <span class="status-badge status-active d-inline-block mb-2">
+                                ${o.status || 'Новый'}
+                            </span>
+                            <div><small>📅 ${o.acceptancedate || ''}</small></div>
+                            ${o.estimatedprice && o.estimatedprice !== 'Мастер уточнит' && o.estimatedprice !== 'мастер уточнит' ? `
+                                <div class="mt-2"><small>💰 ${o.estimatedprice} ₽</small></div>
+                            ` : ''}
                         </div>
-                    </div>
-                    <div class="col-md-4 text-end">
-                        <span class="status-badge status-active d-inline-block mb-2">
-                            ${o.status || 'Новый'}
-                        </span>
-                        <div><small>📅 ${o.acceptancedate || ''}</small></div>
-                        ${o.estimatedprice && o.estimatedprice !== 'Мастер уточнит' && o.estimatedprice !== 'мастер уточнит' ? `
-                            <div class="mt-2"><small>💰 ${o.estimatedprice} ₽</small></div>
-                        ` : ''}
                     </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
     renderCompletedOrdersList(orders) {
@@ -993,28 +1006,31 @@ class OrderManager {
             return '<p class="text-center py-4">Нет завершенных заказов</p>';
         }
         
-        return orders.map(o => `
-            <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
-                <div class="row">
-                    <div class="col-md-7">
-                        <strong class="text-primary">${o.ordernumber || 'Без номера'}</strong>
-                        <div class="mt-2">
-                            <small>
-                                <i class="bi bi-person"></i> ${o.customername || ''}<br>
-                                <i class="bi bi-telephone"></i> ${this.formatPhoneNumber(o.phone) || ''}<br>
-                                <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
-                            </small>
+        return orders.map(o => {
+            const formattedPhone = this.formatPhoneNumber(o.phone);
+            return `
+                <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
+                    <div class="row">
+                        <div class="col-md-7">
+                            <strong class="text-primary">${o.ordernumber || 'Без номера'}</strong>
+                            <div class="mt-2">
+                                <small>
+                                    <i class="bi bi-person"></i> ${o.customername || ''}<br>
+                                    <i class="bi bi-telephone"></i> ${formattedPhone || ''}<br>
+                                    <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
+                                </small>
+                            </div>
+                        </div>
+                        <div class="col-md-5 text-end">
+                            <span class="status-badge status-completed d-inline-block mb-2">${o.status || 'Выдан'}</span>
+                            <div><small>📅 Принят: ${o.acceptancedate || ''}</small></div>
+                            <div><small>✅ Выдан: ${o.completiondate || ''}</small></div>
+                            <div class="mt-2"><strong>💰 ${o.finalprice || 0} ₽</strong></div>
                         </div>
                     </div>
-                    <div class="col-md-5 text-end">
-                        <span class="status-badge status-completed d-inline-block mb-2">${o.status || 'Выдан'}</span>
-                        <div><small>📅 Принят: ${o.acceptancedate || ''}</small></div>
-                        <div><small>✅ Выдан: ${o.completiondate || ''}</small></div>
-                        <div class="mt-2"><strong>💰 ${o.finalprice || 0} ₽</strong></div>
-                    </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
     renderPagination(totalPages) {
@@ -1089,13 +1105,14 @@ class OrderManager {
         let html = '<h5 class="mt-4">Результаты поиска:</h5>';
         
         results.forEach(o => {
+            const formattedPhone = this.formatPhoneNumber(o.phone);
             html += `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
                     <div class="d-flex justify-content-between">
                         <div>
                             <strong>${o.ordernumber || 'Без номера'}</strong>
                             <br>
-                            <small>${o.customername || ''} | ${this.formatPhoneNumber(o.phone) || ''}</small>
+                            <small>${o.customername || ''} | ${formattedPhone || ''}</small>
                         </div>
                         <div class="text-end">
                             <span class="status-badge ${o.status === 'Выдан' ? 'status-completed' : 'status-active'}">
