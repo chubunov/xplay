@@ -163,6 +163,10 @@
             filter: brightness(0) invert(1);
         }
         
+        .modal-header.bg-danger {
+            background: #dc3545 !important;
+        }
+        
         /* Формы */
         .form-control, .form-select {
             border-radius: 8px;
@@ -541,12 +545,12 @@
                 </div>
                 <div class="modal-body">
                     <p class="mb-0">Вы уверены, что хотите удалить этот заказ?</p>
-                    <p class="text-danger mt-2"><small>Это действие нельзя отменить!</small></p>
+                    <p class="text-danger mt-2"><small>Это действие нельзя отменить! Все данные будут безвозвратно потеряны.</small></p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                     <button type="button" class="btn btn-danger" onclick="confirmDeleteOrder()">
-                        <i class="bi bi-trash"></i> Удалить
+                        <i class="bi bi-trash"></i> Да, удалить
                     </button>
                 </div>
             </div>
@@ -585,67 +589,5 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Подключаем основной скрипт -->
     <script src="app.js"></script>
-
-    <!-- Дополнительные функции для экспорта -->
-    <script>
-        // Функции для экспорта данных
-        function exportData() {
-            new bootstrap.Modal(document.getElementById('exportModal')).show();
-        }
-        
-        function exportToJSON() {
-            const data = orderManager.orders;
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `xplay_orders_${new Date().toISOString().slice(0,10)}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-            bootstrap.Modal.getInstance(document.getElementById('exportModal')).hide();
-            orderManager.showNotification('✅ Данные экспортированы в JSON', 'success');
-        }
-        
-        function exportToCSV() {
-            const orders = orderManager.orders;
-            if (orders.length === 0) {
-                orderManager.showNotification('❌ Нет данных для экспорта', 'warning');
-                return;
-            }
-            
-            // Заголовки CSV
-            const headers = ['Номер заказа', 'Клиент', 'Телефон', 'Устройство', 'Модель', 
-                           'Неисправность', 'Статус', 'Стоимость', 'Итоговая', 'Дата приема', 'Дата выдачи'];
-            
-            let csv = headers.join(';') + '\n';
-            
-            orders.forEach(o => {
-                const row = [
-                    o.ordernumber || '',
-                    o.customername || '',
-                    o.phone || '',
-                    o.devicetype || '',
-                    o.devicemodel || '',
-                    (o.problem || '').replace(/;/g, ','),
-                    o.status || '',
-                    o.estimatedprice || '',
-                    o.finalprice || '',
-                    o.acceptancedate || '',
-                    o.completiondate || ''
-                ];
-                csv += row.join(';') + '\n';
-            });
-            
-            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // Добавляем BOM для UTF-8
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `xplay_orders_${new Date().toISOString().slice(0,10)}.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
-            bootstrap.Modal.getInstance(document.getElementById('exportModal')).hide();
-            orderManager.showNotification('✅ Данные экспортированы в CSV', 'success');
-        }
-    </script>
 </body>
 </html>
