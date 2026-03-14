@@ -146,45 +146,69 @@ class OrderManager {
     }
 
     async confirmDeleteOrder() {
-        if (!this.currentOrderId) return;
+        console.log('========== НАЧИНАЕМ УДАЛЕНИЕ ==========');
+        console.log('1. ID заказа для удаления:', this.currentOrderId);
+        console.log('2. URL API:', this.apiUrl);
         
+        if (!this.currentOrderId) {
+            console.log('❌ Ошибка: ID заказа не найден');
+            this.showNotification('Ошибка: ID заказа не найден', 'danger');
+            return;
+        }
+        
+        // Скрываем модальное окно подтверждения
         bootstrap.Modal.getInstance(document.getElementById('deleteConfirmModal')).hide();
         this.showLoading();
         
         try {
+            console.log('3. Отправляем запрос на удаление...');
+            
             const formData = new FormData();
             formData.append('action', 'deleteOrder');
             formData.append('id', this.currentOrderId);
+            
+            console.log('4. FormData создана:', { 
+                action: 'deleteOrder', 
+                id: this.currentOrderId 
+            });
             
             const response = await fetch(this.apiUrl, {
                 method: 'POST',
                 body: formData
             });
             
+            console.log('5. Ответ получен, статус:', response.status);
+            
             const data = await response.json();
+            console.log('6. Данные ответа:', data);
             
             if (data.success) {
+                console.log('✅ Удаление успешно!');
+                
+                // Обновляем список заказов
                 await this.loadOrders();
                 
+                // Закрываем окно просмотра заказа
                 const viewModal = bootstrap.Modal.getInstance(document.getElementById('viewOrderModal'));
                 if (viewModal) viewModal.hide();
                 
                 this.showNotification('✅ Заказ успешно удален', 'success');
+                
+                // Обновляем текущее представление
                 this.render();
             } else {
-                this.showNotification('❌ Ошибка при удалении заказа', 'danger');
+                console.log('❌ Ошибка от сервера:', data.error);
+                this.showNotification('❌ Ошибка при удалении заказа: ' + (data.error || 'Неизвестная ошибка'), 'danger');
             }
         } catch (error) {
-            console.error('Ошибка удаления:', error);
-            this.showNotification('❌ Ошибка соединения', 'danger');
+            console.log('❌ Критическая ошибка:', error);
+            console.log('Детали ошибки:', error.message);
+            this.showNotification('❌ Ошибка соединения: ' + error.message, 'danger');
         }
         
         this.hideLoading();
         this.currentOrderId = null;
-    }
-
-    async deleteOrder(id) {
-        this.showDeleteConfirmation(id);
+        console.log('========== УДАЛЕНИЕ ЗАВЕРШЕНО ==========');
     }
 
     // ========== АВТОРИЗАЦИЯ ==========
