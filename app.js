@@ -14,22 +14,6 @@ class OrderManager {
         this.checkAuth();
     }
 
-    // ========== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОЧИСТКИ ТЕЛЕФОНА ==========
-    cleanPhoneNumber(phone) {
-        if (!phone) return '';
-        // Удаляем все кроме цифр и знака + в начале
-        let cleaned = phone.replace(/[^\d+]/g, '');
-        // Убеждаемся что номер начинается с +7 или 8
-        if (cleaned.startsWith('8')) {
-            cleaned = '+7' + cleaned.substring(1);
-        } else if (cleaned.startsWith('7')) {
-            cleaned = '+' + cleaned;
-        } else if (!cleaned.startsWith('+')) {
-            cleaned = '+7' + cleaned;
-        }
-        return cleaned;
-    }
-
     // ========== РАБОТА С ДАННЫМИ ==========
 
     async init() {
@@ -74,13 +58,80 @@ class OrderManager {
         }
     }
 
+    // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕЛЕФОНА ==========
+
+    cleanPhoneNumber(phone) {
+        if (!phone) return '';
+        
+        // Сохраняем оригинал для отладки
+        const original = phone;
+        
+        // Удаляем все кроме цифр и знака +
+        let cleaned = phone.replace(/[^\d+]/g, '');
+        
+        // Если начинается с 8, заменяем на +7
+        if (cleaned.startsWith('8')) {
+            cleaned = '+7' + cleaned.substring(1);
+        }
+        
+        // Если есть цифры, но нет +, добавляем +7
+        if (cleaned.length >= 10 && !cleaned.startsWith('+')) {
+            // Если начинается с 7, добавляем +
+            if (cleaned.startsWith('7')) {
+                cleaned = '+' + cleaned;
+            } 
+            // Если начинается с другой цифры, добавляем +7
+            else {
+                cleaned = '+7' + cleaned;
+            }
+        }
+        
+        // Обрезаем до 12 символов (+7 и 10 цифр)
+        if (cleaned.length > 12) {
+            cleaned = cleaned.substring(0, 12);
+        }
+        
+        console.log('Телефон очищен:', original, '→', cleaned);
+        return cleaned;
+    }
+
+    formatPhoneNumber(phone) {
+        if (!phone) return '';
+        
+        // Если уже отформатирован, возвращаем как есть
+        if (phone.includes('(') || phone.includes('-')) {
+            return phone;
+        }
+        
+        // Форматируем +7XXXXXXXXXX в +7 (XXX) XXX-XX-XX
+        const cleaned = phone.replace(/\D/g, '');
+        
+        // Для российских номеров (+7)
+        if (cleaned.length === 11 && cleaned.startsWith('7')) {
+            return `+7 (${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7, 9)}-${cleaned.substring(9, 11)}`;
+        }
+        // Для 10-значных номеров (без +7)
+        else if (cleaned.length === 10) {
+            return `+7 (${cleaned.substring(0, 3)}) ${cleaned.substring(3, 6)}-${cleaned.substring(6, 8)}-${cleaned.substring(8, 10)}`;
+        }
+        // Для 11-значных с 8
+        else if (cleaned.length === 11 && cleaned.startsWith('8')) {
+            return `+7 (${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7, 9)}-${cleaned.substring(9, 11)}`;
+        }
+        
+        return phone;
+    }
+
+    // ========== РАБОТА С ЗАКАЗАМИ ==========
+
     async createOrder(orderData) {
         this.showLoading();
         try {
             // Очищаем телефон перед отправкой
-            if (orderData.phone) {
-                orderData.phone = this.cleanPhoneNumber(orderData.phone);
-            }
+            const cleanedPhone = this.cleanPhoneNumber(orderData.phone);
+            orderData.phone = cleanedPhone;
+            
+            console.log('Создание заказа с телефоном:', cleanedPhone);
             
             const formData = new FormData();
             formData.append('action', 'createOrder');
@@ -100,24 +151,21 @@ class OrderManager {
                 this.showNotification('✅ Заказ успешно создан!', 'success');
                 return true;
             } else {
-                this.showNotification('❌ Ошибка от сервера: ' + (data.error || 'Неизвестная ошибка'), 'danger');
+                this.showNotification('❌ Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
+                return false;
             }
         } catch (error) {
             console.error('Ошибка создания:', error);
-            this.showNotification('❌ Ошибка при создании заказа: ' + error.message, 'danger');
+            this.showNotification('❌ Ошибка при создании заказа', 'danger');
+            return false;
+        } finally {
+            this.hideLoading();
         }
-        this.hideLoading();
-        return false;
     }
 
     async updateOrder(id, updates) {
         this.showLoading();
         try {
-            // Очищаем телефон, если он есть в обновлениях
-            if (updates.phone) {
-                updates.phone = this.cleanPhoneNumber(updates.phone);
-            }
-            
             const formData = new FormData();
             formData.append('action', 'updateOrder');
             formData.append('id', id);
@@ -134,14 +182,13 @@ class OrderManager {
                 await this.loadOrders();
                 this.showNotification('✅ Заказ обновлен', 'success');
                 return true;
-            } else {
-                this.showNotification('❌ Ошибка от сервера: ' + (data.error || 'Неизвестная ошибка'), 'danger');
             }
         } catch (error) {
             console.error('Ошибка обновления:', error);
-            this.showNotification('❌ Ошибка обновления: ' + error.message, 'danger');
+            this.showNotification('❌ Ошибка обновления', 'danger');
+        } finally {
+            this.hideLoading();
         }
-        this.hideLoading();
         return false;
     }
 
@@ -234,11 +281,16 @@ class OrderManager {
             console.log('❌ Критическая ошибка:', error);
             console.log('Детали ошибки:', error.message);
             this.showNotification('❌ Ошибка соединения: ' + error.message, 'danger');
+        } finally {
+            this.hideLoading();
+            this.currentOrderId = null;
+            console.log('========== УДАЛЕНИЕ ЗАВЕРШЕНО ==========');
         }
-        
-        this.hideLoading();
-        this.currentOrderId = null;
-        console.log('========== УДАЛЕНИЕ ЗАВЕРШЕНО ==========');
+    }
+
+    async deleteOrder(id) {
+        console.log('Вызвано deleteOrder с id:', id);
+        this.showDeleteConfirmation(id);
     }
 
     // ========== АВТОРИЗАЦИЯ ==========
@@ -360,15 +412,17 @@ class OrderManager {
 
     searchOrders(query) {
         query = query.toLowerCase().trim();
-        // Очищаем запрос от форматирования для поиска
-        const cleanQuery = this.cleanPhoneNumber(query);
+        
+        // Очищаем запрос для поиска
+        const cleanQuery = query.replace(/[^\d+]/g, '');
         
         return this.orders.filter(o => {
-            const phone = o.phone ? o.phone.toLowerCase() : '';
-            const cleanPhone = this.cleanPhoneNumber(phone);
-            const customerName = o.customername ? o.customername.toLowerCase() : '';
-            const orderNumber = o.ordernumber ? o.ordernumber.toLowerCase() : '';
+            const phone = (o.phone || '').toLowerCase();
+            const cleanPhone = phone.replace(/[^\d+]/g, '');
+            const customerName = (o.customername || '').toLowerCase();
+            const orderNumber = (o.ordernumber || '').toLowerCase();
             
+            // Ищем по оригинальному запросу и по очищенному
             return phone.includes(query) || 
                    cleanPhone.includes(cleanQuery) ||
                    customerName.includes(query) || 
@@ -519,7 +573,7 @@ class OrderManager {
                     
                     <table>
                         <tr><td>Клиент:</td><td>${order.customername || ''}</td></tr>
-                        <tr><td>Телефон:</td><td>${order.phone || ''}</td></tr>
+                        <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone) || ''}</td></tr>
                         <tr><td>Устройство:</td><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
                         <tr><td>Серийный номер:</td><td>${order.serialnumber || 'Отсутствует'}</td></tr>
                         <tr><td>Неисправность:</td><td>${order.problem || ''}</td></tr>
@@ -553,7 +607,7 @@ class OrderManager {
                     
                     <table>
                         <tr><td>Клиент:</td><td>${order.customername || ''}</td></tr>
-                        <tr><td>Телефон:</td><td>${order.phone || ''}</td></tr>
+                        <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone) || ''}</td></tr>
                         <tr><td>Устройство:</td><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
                         <tr><td>S/N:</td><td>${order.serialnumber || 'Отсутствует'}</td></tr>
                         <tr><td>Неисправность:</td><td>${order.problem || ''}</td></tr>
@@ -620,7 +674,7 @@ class OrderManager {
                 
                 <table class="table table-bordered">
                     <tr><th style="width: 40%">Клиент:</th><td>${order.customername || ''}</td></tr>
-                    <tr><th>Телефон:</th><td>${order.phone || ''}</td></tr>
+                    <tr><th>Телефон:</th><td>${this.formatPhoneNumber(order.phone) || ''}</td></tr>
                     <tr><th>Устройство:</th><td>${order.devicetype || ''} ${order.devicemodel || ''}</td></tr>
                     <tr><th>Серийный номер:</th><td>${order.serialnumber || 'Отсутствует'}</td></tr>
                     <tr><th>Неисправность:</th><td>${order.problem || ''}</td></tr>
@@ -697,7 +751,7 @@ class OrderManager {
     showCloseOrderForm(order) {
         document.getElementById('closeOrderId').value = order.id;
         document.getElementById('closeCustomerName').value = order.customername || '';
-        document.getElementById('closePhone').value = order.phone || '';
+        document.getElementById('closePhone').value = this.formatPhoneNumber(order.phone) || '';
         document.getElementById('closeDevice').value = `${order.devicetype || ''} ${order.devicemodel || ''}`;
         document.getElementById('closeProblem').value = order.problem || '';
         document.getElementById('closeEstimatedPrice').value = order.estimatedprice || 'Мастер уточнит';
@@ -807,7 +861,7 @@ class OrderManager {
                 <div class="d-flex justify-content-between">
                     <div>
                         <strong>${o.ordernumber || 'Без номера'}</strong><br>
-                        <small>${o.customername || ''} | ${o.phone || ''}</small>
+                        <small>${o.customername || ''} | ${this.formatPhoneNumber(o.phone) || ''}</small>
                     </div>
                     <span class="status-badge ${o.status === 'Выдан' ? 'status-completed' : 'status-active'}">
                         ${o.status || 'Новый'}
@@ -912,7 +966,7 @@ class OrderManager {
                         <div class="mt-2">
                             <small>
                                 <i class="bi bi-person"></i> ${o.customername || ''}<br>
-                                <i class="bi bi-telephone"></i> ${o.phone || ''}<br>
+                                <i class="bi bi-telephone"></i> ${this.formatPhoneNumber(o.phone) || ''}<br>
                                 <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
                             </small>
                         </div>
@@ -947,7 +1001,7 @@ class OrderManager {
                         <div class="mt-2">
                             <small>
                                 <i class="bi bi-person"></i> ${o.customername || ''}<br>
-                                <i class="bi bi-telephone"></i> ${o.phone || ''}<br>
+                                <i class="bi bi-telephone"></i> ${this.formatPhoneNumber(o.phone) || ''}<br>
                                 <i class="bi bi-controller"></i> ${o.devicetype || ''} ${o.devicemodel || ''}
                             </small>
                         </div>
@@ -1003,7 +1057,7 @@ class OrderManager {
                                 <label class="form-label">Введите телефон или номер заказа</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control" id="searchQuery" 
-                                           placeholder="Напр. +7(902) или 20240314-001"
+                                           placeholder="Напр. +7 (920) 270-19-69 или 20240314-001"
                                            onkeypress="if(event.key==='Enter') orderManager.performSearch()">
                                     <button class="btn btn-primary" onclick="orderManager.performSearch()">
                                         <i class="bi bi-search"></i> Найти
@@ -1041,7 +1095,7 @@ class OrderManager {
                         <div>
                             <strong>${o.ordernumber || 'Без номера'}</strong>
                             <br>
-                            <small>${o.customername || ''} | ${o.phone || ''}</small>
+                            <small>${o.customername || ''} | ${this.formatPhoneNumber(o.phone) || ''}</small>
                         </div>
                         <div class="text-end">
                             <span class="status-badge ${o.status === 'Выдан' ? 'status-completed' : 'status-active'}">
@@ -1071,9 +1125,16 @@ class OrderManager {
             return;
         }
         
+        // Получаем телефон и очищаем его
+        let phone = document.getElementById('phone').value;
+        const cleanedPhone = this.cleanPhoneNumber(phone);
+        
+        console.log('Исходный телефон:', phone);
+        console.log('Очищенный телефон:', cleanedPhone);
+        
         const orderData = {
             customerName: document.getElementById('customerName').value,
-            phone: document.getElementById('phone').value,
+            phone: cleanedPhone, // Используем очищенную версию
             deviceType: document.getElementById('deviceType').value,
             deviceModel: document.getElementById('deviceModel').value,
             serialNumber: document.getElementById('serialNumber').value || 'Отсутствует',
@@ -1082,6 +1143,8 @@ class OrderManager {
             warranty: document.getElementById('warranty').value,
             prepayment: document.getElementById('prepayment').value || '-'
         };
+        
+        console.log('Данные для отправки:', orderData);
         
         const success = await this.createOrder(orderData);
         if (success) {
