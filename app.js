@@ -714,13 +714,12 @@ class OrderManager {
         
         title.textContent = `Заказ №${this.safeString(order.ordernumber) || 'Без номера'}`;
         
-        let html = `
-            <div id="printableOrder">
+        let html += `
                 <div class="text-center mb-4">
                     <h4>Xplay сервис</h4>
                     <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
                     <h5 class="text-primary">Договор № ${this.safeString(order.ordernumber)}</h5>
-                    <p>от ${this.safeString(order.acceptancedate)}</p>
+                    <p>от ${this.formatDate(order.acceptancedate)}</p>
                 </div>
                 
                 <table class="table table-bordered">
@@ -909,12 +908,15 @@ class OrderManager {
         
         return recent.map(o => {
             const formattedPhone = this.formatPhoneNumber(o.phone);
+            const formattedDate = this.formatDate(o.acceptancedate);
+            
             return `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
                     <div class="d-flex justify-content-between">
                         <div>
                             <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong><br>
-                            <small>${this.safeString(o.customername)} | ${formattedPhone}</small>
+                            <small>${this.safeString(o.customername)} | ${formattedPhone}</small><br>
+                            <small class="text-muted">📅 ${formattedDate}</small>
                         </div>
                         <span class="status-badge ${this.safeString(o.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
                             ${this.safeString(o.status) || 'Новый'}
@@ -1008,14 +1010,11 @@ class OrderManager {
     }
 
     renderOrdersList(orders) {
-        if (orders.length === 0) {
-            return '<p class="text-center py-4">Нет заказов</p>';
-        }
-        
         return orders.map(o => {
             const formattedPhone = this.formatPhoneNumber(o.phone);
             const problem = this.safeString(o.problem);
             const problemShort = problem.length > 50 ? problem.substring(0, 47) + '...' : problem;
+            const formattedDate = this.formatDate(o.acceptancedate);
             
             return `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
@@ -1037,7 +1036,7 @@ class OrderManager {
                             <span class="status-badge status-active d-inline-block mb-2">
                                 ${this.safeString(o.status) || 'Новый'}
                             </span>
-                            <div><small>📅 ${this.safeString(o.acceptancedate)}</small></div>
+                            <div><small>📅 ${formattedDate}</small></div>
                             ${this.safeString(o.estimatedprice) && !this.safeString(o.estimatedprice).includes('уточнит') ? `
                                 <div class="mt-2"><small>💰 ${this.safeString(o.estimatedprice)} ₽</small></div>
                             ` : ''}
@@ -1049,12 +1048,11 @@ class OrderManager {
     }
 
     renderCompletedOrdersList(orders) {
-        if (orders.length === 0) {
-            return '<p class="text-center py-4">Нет завершенных заказов</p>';
-        }
-        
         return orders.map(o => {
             const formattedPhone = this.formatPhoneNumber(o.phone);
+            const formattedAcceptDate = this.formatDate(o.acceptancedate);
+            const formattedCompleteDate = this.formatDate(o.completiondate);
+            
             return `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
                     <div class="row">
@@ -1070,8 +1068,8 @@ class OrderManager {
                         </div>
                         <div class="col-md-5 text-end">
                             <span class="status-badge status-completed d-inline-block mb-2">${this.safeString(o.status) || 'Выдан'}</span>
-                            <div><small>📅 Принят: ${this.safeString(o.acceptancedate)}</small></div>
-                            <div><small>✅ Выдан: ${this.safeString(o.completiondate)}</small></div>
+                            <div><small>📅 Принят: ${formattedAcceptDate}</small></div>
+                            <div><small>✅ Выдан: ${formattedCompleteDate}</small></div>
                             <div class="mt-2"><strong>💰 ${this.safeString(o.finalprice) || 0} ₽</strong></div>
                         </div>
                     </div>
