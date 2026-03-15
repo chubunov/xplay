@@ -100,6 +100,40 @@ class OrderManager {
         return str.substring(start, length ? start + length : undefined);
     }
 
+    // ========== ФУНКЦИИ ДЛЯ ФОРМАТИРОВАНИЯ ДАТЫ ==========
+
+    formatDate(date) {
+        if (!date) return '';
+        
+        // Если дата уже в формате ДД.ММ.ГГГГ, возвращаем как есть
+        if (typeof date === 'string' && date.match(/^\d{2}\.\d{2}\.\d{4}/)) {
+            return date;
+        }
+        
+        try {
+            // Пытаемся распарсить дату
+            const d = new Date(date);
+            
+            // Проверяем, что дата валидна
+            if (isNaN(d.getTime())) return '';
+            
+            // Прибавляем 3 часа для МСК (UTC+3)
+            d.setHours(d.getHours() + 3);
+            
+            // Форматируем: 15.03.2026 14:20
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            
+            return `${day}.${month}.${year} ${hours}:${minutes}`;
+        } catch (e) {
+            console.error('Ошибка форматирования даты:', e);
+            return '';
+        }
+    }
+
     // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕЛЕФОНА ==========
 
     cleanPhoneNumber(phone) {
@@ -164,38 +198,6 @@ class OrderManager {
         }
         
         return phoneStr;
-    }
-
-    formatDate(date) {
-        if (!date) return '';
-        
-        // Если дата уже в формате ДД.ММ.ГГГГ, возвращаем как есть
-        if (typeof date === 'string' && date.match(/^\d{2}\.\d{2}\.\d{4}/)) {
-            return date;
-        }
-        
-        try {
-            // Пытаемся распарсить дату
-            const d = new Date(date);
-            
-            // Проверяем, что дата валидна
-            if (isNaN(d.getTime())) return '';
-            
-            // Прибавляем 3 часа для МСК (UTC+3)
-            d.setHours(d.getHours() + 3);
-            
-            // Форматируем: 15.03.2026 14:20
-            const day = String(d.getDate()).padStart(2, '0');
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const year = d.getFullYear();
-            const hours = String(d.getHours()).padStart(2, '0');
-            const minutes = String(d.getMinutes()).padStart(2, '0');
-            
-            return `${day}.${month}.${year} ${hours}:${minutes}`;
-        } catch (e) {
-            console.error('Ошибка форматирования даты:', e);
-            return '';
-        }
     }
 
     // ========== РАБОТА С ЗАКАЗАМИ ==========
@@ -272,13 +274,7 @@ class OrderManager {
         return this.updateOrder(id, {
             status: 'Выдан',
             finalPrice: finalPrice,
-            completionDate: new Date().toLocaleString('ru-RU', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            })
+            completionDate: this.formatDate(new Date()) // Используем форматированную дату
         });
     }
 
@@ -651,7 +647,7 @@ class OrderManager {
                     
                     <div class="contract-number">
                         ОТРЫВНОЙ ТАЛОН (КЛИЕНТУ)<br>
-                        Договор № ${this.safeString(order.ordernumber)} от ${this.safeString(order.acceptancedate).split(' ')[0] || ''}
+                        Договор № ${this.safeString(order.ordernumber)} от ${this.formatDate(order.acceptancedate).split(' ')[0] || ''}
                     </div>
                     
                     <table>
@@ -663,7 +659,7 @@ class OrderManager {
                         <tr><td>Примерная стоимость:</td><td>${this.safeString(order.estimatedprice)} ${!this.safeString(order.estimatedprice).includes('уточнит') ? 'руб.' : ''}</td></tr>
                         <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
                         <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
-                        <tr><td>Дата приема:</td><td>${this.safeString(order.acceptancedate)}</td></tr>
+                        <tr><td>Дата приема:</td><td>${this.formatDate(order.acceptancedate)}</td></tr>
                         <tr><td>Срок ремонта:</td><td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td></tr>
                     </table>
                     
@@ -685,7 +681,7 @@ class OrderManager {
                     <div class="copy">КОПИЯ ДЛЯ СЕРВИСА</div>
                     
                     <div class="contract-number">
-                        Договор № ${this.safeString(order.ordernumber)} от ${this.safeString(order.acceptancedate).split(' ')[0] || ''}
+                        Договор № ${this.safeString(order.ordernumber)} от ${this.formatDate(order.acceptancedate).split(' ')[0] || ''}
                     </div>
                     
                     <table>
@@ -699,7 +695,7 @@ class OrderManager {
                         <tr><td>Статус:</td><td>${this.safeString(order.status) || 'Принят'}</td></tr>
                         ${this.safeString(order.status) === 'Выдан' ? `
                         <tr><td>Итоговая стоимость:</td><td><strong>${this.safeString(order.finalprice) || 0} руб.</strong></td></tr>
-                        <tr><td>Дата выдачи:</td><td>${this.safeString(order.completiondate)}</td></tr>
+                        <tr><td>Дата выдачи:</td><td>${this.formatDate(order.completiondate)}</td></tr>
                         ` : ''}
                     </table>
                     
@@ -746,7 +742,8 @@ class OrderManager {
         
         title.textContent = `Заказ №${this.safeString(order.ordernumber) || 'Без номера'}`;
         
-        let html += `
+        let html = `
+            <div id="printableOrder">
                 <div class="text-center mb-4">
                     <h4>Xplay сервис</h4>
                     <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
@@ -773,7 +770,7 @@ class OrderManager {
         if (this.safeString(order.status) === 'Выдан') {
             html += `
                 <tr><th>Итоговая стоимость:</th><td><strong>${this.safeString(order.finalprice) || 0} ₽</strong></td></tr>
-                <tr><th>Дата выдачи:</th><td>${this.safeString(order.completiondate)}</td></tr>
+                <tr><th>Дата выдачи:</th><td>${this.formatDate(order.completiondate)}</td></tr>
             `;
         }
         
@@ -944,7 +941,7 @@ class OrderManager {
             
             return `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
-                    <div class="d-flex justify-content-between">
+                    <div class="d-flex justify-content-between align-items-start">
                         <div>
                             <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong><br>
                             <small>${this.safeString(o.customername)} | ${formattedPhone}</small><br>
@@ -966,7 +963,7 @@ class OrderManager {
         }
         
         return months.map(([month, data]) => `
-            <div class="d-flex justify-content-between mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
                 <span>${month}</span>
                 <span>
                     <span class="badge bg-primary">${data.count} заказов</span>
@@ -983,7 +980,7 @@ class OrderManager {
         const paginated = active.slice(start, start + this.itemsPerPage);
         
         let html = `
-            <div class="d-flex justify-content-between mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
                 <h2><i class="bi bi-list-check"></i> Активные заказы</h2>
                 <button class="btn btn-primary" onclick="orderManager.showNewOrderForm()">
                     <i class="bi bi-plus-circle"></i> Новый договор
@@ -991,7 +988,7 @@ class OrderManager {
             </div>
             
             <div class="card">
-                <div class="card-header d-flex justify-content-between">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <span>Всего: ${active.length}</span>
                     <span>Страница ${this.currentPage} из ${totalPages || 1}</span>
                 </div>
@@ -1018,7 +1015,7 @@ class OrderManager {
         const totalSum = completed.reduce((sum, o) => sum + (parseInt(o.finalprice) || 0), 0);
         
         let html = `
-            <div class="d-flex justify-content-between mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
                 <h2><i class="bi bi-check-circle"></i> Завершенные заказы</h2>
                 <div>
                     <span class="badge bg-success me-2">Всего: ${completed.length}</span>
@@ -1027,7 +1024,7 @@ class OrderManager {
             </div>
             
             <div class="card">
-                <div class="card-header d-flex justify-content-between">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <span>За последний месяц</span>
                     <span>Страница ${this.currentPage} из ${totalPages || 1}</span>
                 </div>
@@ -1042,6 +1039,10 @@ class OrderManager {
     }
 
     renderOrdersList(orders) {
+        if (orders.length === 0) {
+            return '<p class="text-center py-4">Нет заказов</p>';
+        }
+        
         return orders.map(o => {
             const formattedPhone = this.formatPhoneNumber(o.phone);
             const problem = this.safeString(o.problem);
@@ -1080,6 +1081,10 @@ class OrderManager {
     }
 
     renderCompletedOrdersList(orders) {
+        if (orders.length === 0) {
+            return '<p class="text-center py-4">Нет завершенных заказов</p>';
+        }
+        
         return orders.map(o => {
             const formattedPhone = this.formatPhoneNumber(o.phone);
             const formattedAcceptDate = this.formatDate(o.acceptancedate);
@@ -1183,13 +1188,17 @@ class OrderManager {
         
         results.forEach(o => {
             const formattedPhone = this.formatPhoneNumber(o.phone);
+            const formattedDate = this.formatDate(o.acceptancedate);
+            
             html += `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
-                    <div class="d-flex justify-content-between">
+                    <div class="d-flex justify-content-between align-items-start">
                         <div>
                             <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong>
                             <br>
                             <small>${this.safeString(o.customername)} | ${formattedPhone}</small>
+                            <br>
+                            <small class="text-muted">📅 ${formattedDate}</small>
                         </div>
                         <div class="text-end">
                             <span class="status-badge ${this.safeString(o.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
