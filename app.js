@@ -166,6 +166,38 @@ class OrderManager {
         return phoneStr;
     }
 
+    formatDate(date) {
+        if (!date) return '';
+        
+        // Если дата уже в формате ДД.ММ.ГГГГ, возвращаем как есть
+        if (typeof date === 'string' && date.match(/^\d{2}\.\d{2}\.\d{4}/)) {
+            return date;
+        }
+        
+        try {
+            // Пытаемся распарсить дату
+            const d = new Date(date);
+            
+            // Проверяем, что дата валидна
+            if (isNaN(d.getTime())) return '';
+            
+            // Прибавляем 3 часа для МСК (UTC+3)
+            d.setHours(d.getHours() + 3);
+            
+            // Форматируем: 15.03.2026 14:20
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            
+            return `${day}.${month}.${year} ${hours}:${minutes}`;
+        } catch (e) {
+            console.error('Ошибка форматирования даты:', e);
+            return '';
+        }
+    }
+
     // ========== РАБОТА С ЗАКАЗАМИ ==========
 
     async createOrder(orderData) {
