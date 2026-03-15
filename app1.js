@@ -10,7 +10,7 @@ class OrderManager {
         this.isManager = false;
         
         // ЗАМЕНИТЕ НА ВАШ URL ИЗ GOOGLE APPS SCRIPT
-        this.apiUrl = 'https://script.google.com/macros/s/ВАШ_КОД_ЗДЕСЬ/exec';
+        this.apiUrl = 'https://script.google.com/macros/s/AKfycbwuPw3q5yGbvEOi9mpNJToFCLeGEPx8xv3TMy3tT6-8IjHJmVqHYLzkxqTlIQgRxp8cTw/exec';
         
         this.loading = false;
         this.currentOrderId = null;
