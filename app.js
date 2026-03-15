@@ -392,6 +392,7 @@ class OrderManager {
     formatDate(date) {
         if (!date) return '';
         
+        // Если дата уже в формате ДД.ММ.ГГГГ, возвращаем как есть
         if (typeof date === 'string' && date.match(/^\d{2}\.\d{2}\.\d{4}/)) {
             return date;
         }
@@ -400,8 +401,7 @@ class OrderManager {
             const d = new Date(date);
             if (isNaN(d.getTime())) return '';
             
-            d.setHours(d.getHours() + 3);
-            
+            // НЕ добавляем +3 часа, так как время уже в МСК из скрипта
             const day = String(d.getDate()).padStart(2, '0');
             const month = String(d.getMonth() + 1).padStart(2, '0');
             const year = d.getFullYear();
@@ -864,42 +864,168 @@ class OrderManager {
         
         title.textContent = `Заказ №${this.safeString(order.ordernumber) || 'Без номера'}`;
         
+        // ПОЛНЫЙ ОТРЫВНОЙ ТАЛОН КАК В ПЕРВОМ ВАРИАНТЕ
         let html = `
-            <div class="text-center mb-4">
-                <h4>Xplay сервис</h4>
-                <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
-                <h5 class="text-primary">Договор № ${this.safeString(order.ordernumber)}</h5>
-                <p>от ${this.formatDate(order.acceptancedate)}</p>
-            </div>
-            
-            <table class="table table-bordered">
-                <tr><th style="width: 40%">Клиент:</th><td>${this.safeString(order.customername)}</td></tr>
-                <tr><th>Телефон:</th><td>${this.formatPhoneNumber(order.phone)}</td></tr>
-                <tr><th>Устройство:</th><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
-                <tr><th>Серийный номер:</th><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
-                <tr><th>Неисправность:</th><td>${this.safeString(order.problem)}</td></tr>
-                <tr><th>Примерная стоимость:</th><td>${this.safeString(order.estimatedprice)}</td></tr>
-                <tr><th>Предоплата:</th><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
-                <tr><th>Гарантия:</th><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
-                <tr><th>Статус:</th><td>
-                    <span class="status-badge ${this.safeString(order.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
-                        ${this.safeString(order.status) || 'Новый'}
-                    </span>
-                </td></tr>
+            <div id="printableOrder">
+                <!-- ВЕРХНЯЯ ЧАСТЬ (ДЛЯ КЛИЕНТА) -->
+                <div class="text-center mb-4">
+                    <h4>Xplay сервис</h4>
+                    <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
+                    <h5 class="text-primary">ОТРЫВНОЙ ТАЛОН (КЛИЕНТУ)</h5>
+                    <h5>Договор № ${this.safeString(order.ordernumber)}</h5>
+                    <p>от ${this.formatDate(order.acceptancedate)}</p>
+                </div>
+                
+                <table class="table table-bordered">
+                    <tr>
+                        <th style="width: 40%">Клиент:</th>
+                        <td>${this.safeString(order.customername)}</td>
+                    </tr>
+                    <tr>
+                        <th>Телефон:</th>
+                        <td>${this.formatPhoneNumber(order.phone)}</td>
+                    </tr>
+                    <tr>
+                        <th>Устройство:</th>
+                        <td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td>
+                    </tr>
+                    <tr>
+                        <th>Серийный номер:</th>
+                        <td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td>
+                    </tr>
+                    <tr>
+                        <th>Неисправность:</th>
+                        <td>${this.safeString(order.problem)}</td>
+                    </tr>
+                    <tr>
+                        <th>Примерная стоимость:</th>
+                        <td>${this.safeString(order.estimatedprice)} ${!this.safeString(order.estimatedprice).includes('уточнит') ? 'руб.' : ''}</td>
+                    </tr>
+                    <tr>
+                        <th>Предоплата:</th>
+                        <td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td>
+                    </tr>
+                    <tr>
+                        <th>Гарантия:</th>
+                        <td>${this.safeString(order.warranty) || '30 дней'}</td>
+                    </tr>
+                    <tr>
+                        <th>Срок ремонта:</th>
+                        <td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td>
+                    </tr>
+                </table>
+                
+                <div class="mt-3">
+                    <h6>Условия:</h6>
+                    <small>
+                        1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
+                        2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
+                        3. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ: 300 руб. - аксессуары, 800 руб. - игровые консоли.
+                    </small>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-6">
+                        <p>Клиент: _________________________</p>
+                    </div>
+                    <div class="col-6 text-end">
+                        <p>Мастер: _________________________</p>
+                    </div>
+                </div>
+                
+                <!-- ЛИНИЯ ОТРЕЗА -->
+                <div class="text-center my-4">
+                    <hr style="border-top: 2px dashed #999;">
+                    <span class="text-muted" style="font-style: italic;">- - - - - отрезать клиенту - - - - -</span>
+                    <hr style="border-top: 2px dashed #999;">
+                </div>
+                
+                <!-- НИЖНЯЯ ЧАСТЬ (ДЛЯ СЕРВИСА) -->
+                <div class="text-center mb-4">
+                    <h5 class="text-primary">КОПИЯ ДЛЯ СЕРВИСА</h5>
+                    <h5>Договор № ${this.safeString(order.ordernumber)}</h5>
+                    <p>от ${this.formatDate(order.acceptancedate)}</p>
+                </div>
+                
+                <table class="table table-bordered">
+                    <tr>
+                        <th style="width: 40%">Клиент:</th>
+                        <td>${this.safeString(order.customername)}</td>
+                    </tr>
+                    <tr>
+                        <th>Телефон:</th>
+                        <td>${this.formatPhoneNumber(order.phone)}</td>
+                    </tr>
+                    <tr>
+                        <th>Устройство:</th>
+                        <td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td>
+                    </tr>
+                    <tr>
+                        <th>S/N:</th>
+                        <td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td>
+                    </tr>
+                    <tr>
+                        <th>Неисправность:</th>
+                        <td>${this.safeString(order.problem)}</td>
+                    </tr>
         `;
         
         if (this.safeString(order.status) === 'Выдан') {
             html += `
-                <tr><th>Итоговая стоимость:</th><td><strong>${this.safeString(order.finalprice) || 0} ₽</strong></td></tr>
-                <tr><th>Дата выдачи:</th><td>${this.formatDate(order.completiondate)}</td></tr>
+                    <tr>
+                        <th>Итоговая стоимость:</th>
+                        <td><strong>${this.safeString(order.finalprice) || 0} руб.</strong></td>
+                    </tr>
+                    <tr>
+                        <th>Дата выдачи:</th>
+                        <td>${this.formatDate(order.completiondate)}</td>
+                    </tr>
+            `;
+        } else {
+            html += `
+                    <tr>
+                        <th>Примерная стоимость:</th>
+                        <td>${this.safeString(order.estimatedprice)}</td>
+                    </tr>
+                    <tr>
+                        <th>Предоплата:</th>
+                        <td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td>
+                    </tr>
+                    <tr>
+                        <th>Гарантия:</th>
+                        <td>${this.safeString(order.warranty) || '30 дней'}</td>
+                    </tr>
+                    <tr>
+                        <th>Статус:</th>
+                        <td>${this.safeString(order.status) || 'Принят'}</td>
+                    </tr>
             `;
         }
         
         if (order.createdby) {
-            html += `<tr><th>Создал:</th><td>${order.createdby}</td></tr>`;
+            html += `<tr><th>Принял:</th><td>${order.createdby}</td></tr>`;
         }
         
-        html += `</table>`;
+        html += `
+                </table>
+                
+                <div class="mt-3">
+                    <h6>ДЛЯ ЗАМЕТОК:</h6>
+                    <p>_________________________________________________</p>
+                    <p>_________________________________________________</p>
+                    <p>_________________________________________________</p>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-6">
+                        <p>Клиент: _________________________</p>
+                    </div>
+                    <div class="col-6 text-end">
+                        <p>Мастер: _________________________</p>
+                    </div>
+                </div>
+            </div>
+        `;
         
         content.innerHTML = html;
         
@@ -922,7 +1048,7 @@ class OrderManager {
             }
             deleteBtn.style.display = 'inline-block';
             deleteBtn.onclick = () => this.deleteOrder(order.id);
-        } else if (this.isManager && this.safeString(order.status) === 'Принят') {
+        } else if (this.isManager && this.safeString(order.status) !== 'Выдан') {
             closeBtn.style.display = 'inline-block';
             closeBtn.onclick = () => this.showCloseOrderForm(order);
             restoreBtn.style.display = 'none';
@@ -959,6 +1085,7 @@ class OrderManager {
         }
     }
 
+    // ПОЛНАЯ ФУНКЦИЯ ПЕЧАТИ КАК В ПЕРВОМ ВАРИАНТЕ
     printOrder(order) {
         const printWindow = window.open('', '_blank');
         
@@ -969,47 +1096,185 @@ class OrderManager {
                 <title>Договор №${this.safeString(order.ordernumber)}</title>
                 <meta charset="utf-8">
                 <style>
-                    body { font-family: 'Times New Roman', serif; margin: 20px; }
-                    .header { text-align: center; margin-bottom: 20px; }
-                    .contract-number { text-align: center; font-size: 18px; font-weight: bold; margin: 20px 0; }
-                    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-                    td { padding: 8px; border: 1px solid #000; }
-                    td:first-child { font-weight: bold; width: 30%; }
-                    .signature { margin-top: 40px; display: flex; justify-content: space-between; }
-                    .cut-line { text-align: center; margin: 30px 0; border-top: 2px dashed #999; padding-top: 10px; }
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    @page { size: A4; margin: 1.5cm; }
+                    body {
+                        font-family: 'Times New Roman', Times, serif;
+                        font-size: 12pt;
+                        line-height: 1.4;
+                        color: #000;
+                        background: #fff;
+                    }
+                    .contract { max-width: 100%; margin: 0 auto; }
+                    .header {
+                        text-align: center;
+                        margin-bottom: 20px;
+                        border-bottom: 2px solid #000;
+                        padding-bottom: 10px;
+                    }
+                    .header h1 { font-size: 18pt; font-weight: bold; margin: 0; }
+                    .header p { font-size: 12pt; margin: 5px 0; }
+                    .contract-number {
+                        text-align: center;
+                        font-size: 14pt;
+                        font-weight: bold;
+                        margin: 20px 0;
+                    }
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 20px 0;
+                        font-size: 11pt;
+                    }
+                    td {
+                        padding: 8px 10px;
+                        border: 1px solid #000;
+                        vertical-align: top;
+                    }
+                    td:first-child {
+                        font-weight: bold;
+                        width: 30%;
+                        background: #f5f5f5;
+                    }
+                    .conditions {
+                        margin: 15px 0;
+                        font-size: 10pt;
+                        line-height: 1.3;
+                        text-align: justify;
+                    }
+                    .conditions h6 {
+                        font-size: 11pt;
+                        font-weight: bold;
+                        margin: 10px 0 5px 0;
+                    }
+                    .signature {
+                        margin-top: 30px;
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 11pt;
+                    }
+                    .cut-line {
+                        text-align: center;
+                        margin: 30px 0 20px 0;
+                        color: #666;
+                        border-top: 2px dashed #999;
+                        padding-top: 10px;
+                        font-size: 11pt;
+                        font-style: italic;
+                    }
+                    .copy {
+                        text-align: center;
+                        font-weight: bold;
+                        font-size: 14pt;
+                        margin: 20px 0;
+                        text-transform: uppercase;
+                    }
+                    .notes {
+                        margin: 20px 0;
+                        font-size: 11pt;
+                    }
+                    .notes p {
+                        margin: 5px 0;
+                    }
+                    @media print {
+                        body { margin: 0; padding: 0; }
+                        .no-print { display: none; }
+                    }
                 </style>
             </head>
             <body>
-                <div class="header">
-                    <h1>Xplay сервис</h1>
-                    <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
+                <div class="contract">
+                    <!-- ВЕРХНЯЯ ЧАСТЬ (ДЛЯ КЛИЕНТА) -->
+                    <div class="header">
+                        <h1>Xplay сервис</h1>
+                        <p>Тула, Центральный переулок д.18</p>
+                        <p>+7(902)904-73-35</p>
+                    </div>
+                    
+                    <div class="contract-number">
+                        ОТРЫВНОЙ ТАЛОН (КЛИЕНТУ)<br>
+                        Договор № ${this.safeString(order.ordernumber)} от ${this.formatDate(order.acceptancedate).split(' ')[0] || ''}
+                    </div>
+                    
+                    <table>
+                        <tr><td>Клиент:</td><td>${this.safeString(order.customername)}</td></tr>
+                        <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone)}</td></tr>
+                        <tr><td>Устройство:</td><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
+                        <tr><td>Серийный номер:</td><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
+                        <tr><td>Неисправность:</td><td>${this.safeString(order.problem)}</td></tr>
+                        <tr><td>Примерная стоимость:</td><td>${this.safeString(order.estimatedprice)} ${!this.safeString(order.estimatedprice).includes('уточнит') ? 'руб.' : ''}</td></tr>
+                        <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
+                        <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
+                        <tr><td>Дата приема:</td><td>${this.formatDate(order.acceptancedate)}</td></tr>
+                        <tr><td>Срок ремонта:</td><td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td></tr>
+                    </table>
+                    
+                    <div class="conditions">
+                        <h6>Условия:</h6>
+                        1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
+                        2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
+                        3. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ: 300 руб. - аксессуары, 800 руб. - игровые консоли.
+                    </div>
+                    
+                    <div class="signature">
+                        <div>Клиент: _________________________</div>
+                        <div>Мастер: _________________________</div>
+                    </div>
+                    
+                    <!-- ЛИНИЯ ОТРЕЗА -->
+                    <div class="cut-line">- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</div>
+                    <div style="text-align: center; font-size: 10pt; font-style: italic; margin-top: -15px;">(отрезать клиенту)</div>
+                    
+                    <!-- НИЖНЯЯ ЧАСТЬ (ДЛЯ СЕРВИСА) -->
+                    <div class="copy">КОПИЯ ДЛЯ СЕРВИСА</div>
+                    
+                    <div class="contract-number">
+                        Договор № ${this.safeString(order.ordernumber)} от ${this.formatDate(order.acceptancedate).split(' ')[0] || ''}
+                    </div>
+                    
+                    <table>
+                        <tr><td>Клиент:</td><td>${this.safeString(order.customername)}</td></tr>
+                        <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone)}</td></tr>
+                        <tr><td>Устройство:</td><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
+                        <tr><td>S/N:</td><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
+                        <tr><td>Неисправность:</td><td>${this.safeString(order.problem)}</td></tr>
+                        <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
+                        <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
+                        <tr><td>Статус:</td><td>${this.safeString(order.status) || 'Принят'}</td></tr>
+                        ${this.safeString(order.status) === 'Выдан' ? `
+                        <tr><td>Итоговая стоимость:</td><td><strong>${this.safeString(order.finalprice) || 0} руб.</strong></td></tr>
+                        <tr><td>Дата выдачи:</td><td>${this.formatDate(order.completiondate)}</td></tr>
+                        ` : ''}
+                        ${order.createdby ? `<tr><td>Принял:</td><td>${order.createdby}</td></tr>` : ''}
+                    </table>
+                    
+                    <div class="notes">
+                        <h6>ДЛЯ ЗАМЕТОК:</h6>
+                        <p>_________________________________________________</p>
+                        <p>_________________________________________________</p>
+                        <p>_________________________________________________</p>
+                    </div>
+                    
+                    <div class="signature" style="margin-top: 20px;">
+                        <div>Клиент: _________________________</div>
+                        <div>Мастер: _________________________</div>
+                    </div>
+                    
+                    <div class="no-print" style="text-align: center; margin-top: 30px;">
+                        <button onclick="window.print()" style="padding: 10px 20px; font-size: 14px; cursor: pointer;">🖨️ Печать</button>
+                        <button onclick="window.close()" style="padding: 10px 20px; font-size: 14px; cursor: pointer;">✖️ Закрыть</button>
+                    </div>
                 </div>
                 
-                <div class="contract-number">
-                    Договор № ${this.safeString(order.ordernumber)} от ${this.formatDate(order.acceptancedate)}
-                </div>
-                
-                <table>
-                    <tr><td>Клиент:</td><td>${this.safeString(order.customername)}</td></tr>
-                    <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone)}</td></tr>
-                    <tr><td>Устройство:</td><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
-                    <tr><td>Неисправность:</td><td>${this.safeString(order.problem)}</td></tr>
-                    <tr><td>Примерная стоимость:</td><td>${this.safeString(order.estimatedprice)}</td></tr>
-                    <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
-                    <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
-                </table>
-                
-                <div class="signature">
-                    <div>Клиент: _________________________</div>
-                    <div>Мастер: _________________________</div>
-                </div>
+                <script>
+                    setTimeout(() => { window.print(); }, 500);
+                </script>
             </body>
             </html>
         `;
         
         printWindow.document.write(html);
         printWindow.document.close();
-        printWindow.print();
     }
 
     showNewOrderForm() {
