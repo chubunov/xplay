@@ -5,83 +5,60 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Xplay Сервис - Управление заказами</title>
     
-    <!-- Favicon -->
+    <!-- Favicon - синий круг с белой X -->
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23667eea'/%3E%3Ctext x='50' y='70' text-anchor='middle' fill='white' font-size='70' font-weight='bold' font-family='Arial'%3EX%3C/text%3E%3C/svg%3E">
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
-    
     <style>
         :root {
-            --primary-color: #667eea;
-            --secondary-color: #764ba2;
+            --primary-color: #0d6efd;
             --success-color: #198754;
             --danger-color: #dc3545;
             --warning-color: #ffc107;
+            --dark-color: #212529;
         }
         
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            background-color: #f8f9fa;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
-        /* Контейнер для контента */
-        .app-container {
-            max-width: 1400px;
-            margin: 20px auto;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
-            min-height: calc(100vh - 40px);
-        }
-        
-        /* Навигация */
         .navbar {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 15px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
         .navbar-brand {
-            color: white !important;
             font-weight: 700;
             font-size: 1.5rem;
+            color: white !important;
         }
         
         .nav-link {
             color: rgba(255,255,255,0.9) !important;
             font-weight: 500;
-            margin: 0 10px;
-            border-radius: 8px;
             transition: all 0.3s;
         }
         
         .nav-link:hover {
-            background: rgba(255,255,255,0.1);
+            color: white !important;
             transform: translateY(-2px);
         }
         
-        .user-info {
-            color: white;
-            padding: 8px 15px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 20px;
-            margin-right: 15px;
-        }
-        
-        .user-info i {
-            margin-right: 5px;
-        }
-        
-        /* Карточки */
         .card {
             border: none;
             border-radius: 15px;
             box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            transition: transform 0.3s, box-shadow 0.3s;
             margin-bottom: 20px;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
         }
         
         .card-header {
@@ -89,9 +66,9 @@
             color: white;
             font-weight: 600;
             border-radius: 15px 15px 0 0 !important;
+            padding: 15px 20px;
         }
         
-        /* Кнопки */
         .btn {
             border-radius: 8px;
             padding: 8px 20px;
@@ -109,75 +86,27 @@
             border: none;
         }
         
-        /* Страница входа */
-        .login-container {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        
-        .login-card {
+        .stat-card {
             background: white;
-            border-radius: 20px;
-            padding: 40px;
-            width: 100%;
-            max-width: 400px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        }
-        
-        .login-header {
+            border-radius: 15px;
+            padding: 20px;
             text-align: center;
-            margin-bottom: 30px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
         }
         
-        .login-header h2 {
-            color: #333;
+        .stat-number {
+            font-size: 2.5rem;
             font-weight: 700;
+            color: var(--primary-color);
         }
         
-        .login-header p {
-            color: #666;
+        .stat-label {
+            color: #6c757d;
             font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
         
-        .login-logo {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 20px;
-        }
-        
-        .login-logo i {
-            font-size: 40px;
-            color: white;
-        }
-        
-        .form-control {
-            border-radius: 10px;
-            padding: 12px 15px;
-            border: 2px solid #e0e0e0;
-            transition: all 0.3s;
-        }
-        
-        .form-control:focus {
-            border-color: #667eea;
-            box-shadow: none;
-        }
-        
-        .login-btn {
-            width: 100%;
-            padding: 12px;
-            font-size: 1.1rem;
-            margin-top: 20px;
-        }
-        
-        /* Элементы заказов */
         .order-item {
             background: white;
             border-radius: 10px;
@@ -193,7 +122,11 @@
             transform: translateX(5px);
         }
         
-        /* Статусы */
+        .order-number {
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+        
         .status-badge {
             padding: 5px 10px;
             border-radius: 20px;
@@ -211,7 +144,6 @@
             color: #198754;
         }
         
-        /* Модальные окна */
         .modal-content {
             border-radius: 15px;
             border: none;
@@ -227,224 +159,289 @@
             filter: brightness(0) invert(1);
         }
         
-        /* Уведомления */
+        .modal-header.bg-danger {
+            background: #dc3545 !important;
+        }
+        
+        .modal-header.bg-success {
+            background: #198754 !important;
+        }
+        
+        .form-control, .form-select {
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            padding: 10px 15px;
+        }
+        
+        .form-control:focus, .form-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        
+        .pagination {
+            justify-content: center;
+            margin-top: 20px;
+        }
+        
+        .page-link {
+            border: none;
+            color: var(--primary-color);
+            margin: 0 5px;
+            border-radius: 8px !important;
+        }
+        
+        .page-item.active .page-link {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+        }
+        
+        .footer {
+            background: white;
+            padding: 20px 0;
+            margin-top: 50px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+        }
+        
         .alert {
             border-radius: 10px;
             border: none;
             box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
         
-        /* Адаптивность */
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+        }
+        
+        .user-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            margin-right: 10px;
+        }
+        
+        .role-badge {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.3);
+            margin-left: 5px;
+        }
+        
+        @media print {
+            .no-print, .navbar, .footer, .btn, .modal-footer {
+                display: none !important;
+            }
+            .card {
+                box-shadow: none;
+                border: 1px solid #ddd;
+            }
+        }
+        
         @media (max-width: 768px) {
-            .app-container {
-                margin: 10px;
-                border-radius: 15px;
+            .stat-number {
+                font-size: 1.8rem;
             }
-            
-            .navbar {
+            .container {
                 padding: 10px;
-            }
-            
-            .user-info {
-                margin: 10px 0;
             }
         }
     </style>
 </head>
 <body>
-    <div id="app">
-        <!-- Страница входа -->
-        <div id="loginPage" class="login-container">
-            <div class="login-card">
-                <div class="login-header">
-                    <div class="login-logo">
-                        <i class="bi bi-controller"></i>
-                    </div>
-                    <h2>Xplay Сервис</h2>
-                    <p>Вход в систему управления заказами</p>
-                </div>
+    <!-- Навигационная панель -->
+    <nav class="navbar navbar-expand-lg navbar-dark no-print">
+        <div class="container">
+            <a class="navbar-brand" href="#" onclick="showDashboard()">
+                <i class="bi bi-controller"></i> Xplay Сервис
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto" id="mainMenu" style="display: none;">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="showDashboard()">
+                            <i class="bi bi-speedometer2"></i> Дашборд
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="showActiveOrders()">
+                            <i class="bi bi-list-check"></i> Активные заказы
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="showNewOrderForm()">
+                            <i class="bi bi-plus-circle"></i> Новый договор
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="showSearch()">
+                            <i class="bi bi-search"></i> Поиск
+                        </a>
+                    </li>
+                    <!-- Админское меню (только для админа) -->
+                    <li class="nav-item dropdown" id="adminMenu" style="display: none;">
+                        <a class="nav-link dropdown-toggle" href="#" id="adminDropdown" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-shield-lock"></i> Админ
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="showCompletedOrders()">
+                                <i class="bi bi-check-circle"></i> Завершенные заказы
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportData()">
+                                <i class="bi bi-download"></i> Экспорт данных
+                            </a></li>
+                        </ul>
+                    </li>
+                </ul>
                 
-                <form id="loginForm" onsubmit="event.preventDefault(); login()">
-                    <div class="mb-3">
-                        <label class="form-label">Имя пользователя</label>
-                        <input type="text" class="form-control" id="username" 
-                               placeholder="admin или manager" required autocomplete="off">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Пароль</label>
-                        <input type="password" class="form-control" id="password" 
-                               placeholder="••••••••" required>
-                    </div>
-                    
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="rememberMe">
-                        <label class="form-check-label" for="rememberMe">
-                            Запомнить меня
-                        </label>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary login-btn">
-                        <i class="bi bi-box-arrow-in-right"></i> Войти
-                    </button>
-                </form>
-                
-                <div class="mt-3 text-center">
-                    <small class="text-muted">
-                        Тестовые учетные записи:<br>
-                        admin / admin123 (полный доступ)<br>
-                        manager / manager123 (создание заказов)
-                    </small>
-                </div>
+                <!-- Правая часть навигации -->
+                <ul class="navbar-nav">
+                    <li class="nav-item" id="notLoggedInMenu">
+                        <a class="nav-link" href="#" onclick="showLogin()">
+                            <i class="bi bi-box-arrow-in-right"></i> Войти
+                        </a>
+                    </li>
+                    <li class="nav-item" id="loggedInMenu" style="display: none;">
+                        <span class="nav-link" id="userInfo">
+                            <i class="bi bi-person-circle"></i> <span id="userName"></span>
+                            <span class="role-badge" id="userRole"></span>
+                        </span>
+                    </li>
+                    <li class="nav-item" id="logoutButton" style="display: none;">
+                        <a class="nav-link" href="#" onclick="logout()">
+                            <i class="bi bi-box-arrow-right"></i> Выйти
+                        </a>
+                    </li>
+                </ul>
             </div>
         </div>
-        
-        <!-- Основное приложение (скрыто) -->
-        <div id="appPage" style="display: none;">
-            <div class="app-container">
-                <!-- Навигационная панель -->
-                <nav class="navbar navbar-expand-lg navbar-dark">
-                    <div class="container-fluid">
-                        <a class="navbar-brand" href="#" onclick="showDashboard()">
-                            <i class="bi bi-controller"></i> Xplay Сервис
-                        </a>
-                        
-                        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                            <span class="navbar-toggler-icon"></span>
-                        </button>
-                        
-                        <div class="collapse navbar-collapse" id="navbarNav">
-                            <ul class="navbar-nav me-auto">
-                                <li class="nav-item">
-                                    <a class="nav-link" href="#" onclick="showDashboard()">
-                                        <i class="bi bi-speedometer2"></i> Дашборд
-                                    </a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" href="#" onclick="showActiveOrders()">
-                                        <i class="bi bi-list-check"></i> Активные заказы
-                                    </a>
-                                </li>
-                                <li class="nav-item" id="newOrderMenu">
-                                    <a class="nav-link" href="#" onclick="showNewOrderForm()">
-                                        <i class="bi bi-plus-circle"></i> Новый договор
-                                    </a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" href="#" onclick="showSearch()">
-                                        <i class="bi bi-search"></i> Поиск
-                                    </a>
-                                </li>
-                                <li class="nav-item dropdown" id="adminMenu" style="display: none;">
-                                    <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
-                                        <i class="bi bi-shield-lock"></i> Админ
-                                    </a>
-                                    <ul class="dropdown-menu">
-                                        <li><a class="dropdown-item" href="#" onclick="showCompletedOrders()">
-                                            <i class="bi bi-check-circle"></i> Завершенные заказы
-                                        </a></li>
-                                        <li><a class="dropdown-item" href="#" onclick="showUsers()">
-                                            <i class="bi bi-people"></i> Пользователи
-                                        </a></li>
-                                        <li><hr class="dropdown-divider"></li>
-                                        <li><a class="dropdown-item" href="#" onclick="exportData()">
-                                            <i class="bi bi-download"></i> Экспорт данных
-                                        </a></li>
-                                    </ul>
-                                </li>
-                            </ul>
-                            
-                            <ul class="navbar-nav">
-                                <li class="nav-item">
-                                    <span class="user-info" id="userInfo">
-                                        <i class="bi bi-person-circle"></i>
-                                        <span id="userName"></span>
-                                        <span class="badge bg-light text-dark ms-2" id="userRole"></span>
-                                    </span>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" href="#" onclick="logout()">
-                                        <i class="bi bi-box-arrow-right"></i> Выйти
-                                    </a>
-                                </li>
-                            </ul>
-                        </div>
+    </nav>
+
+    <!-- Основной контент -->
+    <div class="container mt-4" id="mainContent">
+        <!-- Страница входа по умолчанию -->
+        <div class="login-container">
+            <div class="card">
+                <div class="card-header text-center">
+                    <h4><i class="bi bi-controller"></i> Xplay Сервис</h4>
+                </div>
+                <div class="card-body">
+                    <h5 class="text-center mb-4">Вход в систему</h5>
+                    <div class="mb-3">
+                        <label class="form-label">Логин</label>
+                        <input type="text" class="form-control" id="loginInput" placeholder="Введите логин">
                     </div>
-                </nav>
-                
-                <!-- Основной контент -->
-                <div class="container-fluid p-4" id="mainContent">
-                    <!-- Контент будет загружаться динамически -->
+                    <div class="mb-3">
+                        <label class="form-label">Пароль</label>
+                        <input type="password" class="form-control" id="passwordInput" placeholder="Введите пароль">
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="rememberMe">
+                        <label class="form-check-label">Запомнить меня</label>
+                    </div>
+                    <button class="btn btn-primary w-100" onclick="login()">
+                        <i class="bi bi-box-arrow-in-right"></i> Войти
+                    </button>
+                </div>
+                <div class="card-footer text-center text-muted">
+                    <small>Тула, Центральный переулок д.18 | +7(902)904-73-35</small>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- ===== МОДАЛЬНЫЕ ОКНА ===== -->
+    <!-- Футер -->
+    <footer class="footer no-print" id="footer" style="display: none;">
+        <div class="container text-center">
+            <p class="text-muted mb-0">
+                <i class="bi bi-geo-alt"></i> Тула, Центральный переулок д.18 | 
+                <i class="bi bi-telephone"></i> +7(902)904-73-35 | 
+                <i class="bi bi-clock"></i> ПН-ВС 11:00-21:00
+            </p>
+        </div>
+    </footer>
 
-    <!-- Модальное окно для создания заказа -->
-    <div class="modal fade" id="orderModal" tabindex="-1">
+    <!-- ========== МОДАЛЬНЫЕ ОКНА ========== -->
+
+    <!-- Модальное окно для создания/редактирования заказа -->
+    <div class="modal fade" id="orderModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Новый договор</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="orderModalTitle">Новый договор</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <form id="orderForm">
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Телефон клиента *</label>
-                                <input type="text" class="form-control" id="phone" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">ФИО клиента *</label>
-                                <input type="text" class="form-control" id="customerName" required>
-                            </div>
-                        </div>
+                    <form id="orderForm" onsubmit="event.preventDefault(); saveOrder();">
+                        <input type="hidden" id="orderId">
                         
                         <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Телефон клиента <span class="text-danger">*</span></label>
+                                <input type="tel" class="form-control" id="phone" required 
+                                       placeholder="+7 (999) 123-45-67">
+                                <small class="text-muted">Можно в любом формате</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">ФИО клиента <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="customerName" required 
+                                       placeholder="Иванов Иван Иванович">
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
                             <div class="col-md-4">
-                                <label class="form-label">Тип устройства *</label>
+                                <label class="form-label">Тип устройства <span class="text-danger">*</span></label>
                                 <select class="form-select" id="deviceType" required>
                                     <option value="">Выберите...</option>
-                                    <option value="Игровая приставка">Игровая приставка</option>
-                                    <option value="Контроллер">Контроллер</option>
-                                    <option value="Аксессуар">Аксессуар</option>
-                                    <option value="Другое">Другое</option>
+                                    <option value="Игровая приставка">🎮 Игровая приставка</option>
+                                    <option value="Контроллер">🎮 Контроллер</option>
+                                    <option value="Аксессуар">🎮 Аксессуар</option>
+                                    <option value="Другое">📱 Другое</option>
                                 </select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Модель</label>
-                                <input type="text" class="form-control" id="deviceModel">
+                                <input type="text" class="form-control" id="deviceModel" 
+                                       placeholder="PS5, Xbox Series X...">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Серийный номер</label>
-                                <input type="text" class="form-control" id="serialNumber">
+                                <input type="text" class="form-control" id="serialNumber" 
+                                       placeholder="Введите S/N или оставьте пустым">
                             </div>
                         </div>
-                        
+
                         <div class="mb-3">
-                            <label class="form-label">Описание неисправности *</label>
-                            <textarea class="form-control" id="problem" rows="3" required></textarea>
+                            <label class="form-label">Описание неисправности <span class="text-danger">*</span></label>
+                            <textarea class="form-control" id="problem" rows="3" required 
+                                      placeholder="Подробно опишите проблему..."></textarea>
                         </div>
-                        
+
                         <div class="row mb-3">
                             <div class="col-md-4">
                                 <label class="form-label">Примерная стоимость</label>
-                                <input type="text" class="form-control" id="estimatedPrice">
+                                <input type="text" class="form-control" id="estimatedPrice" 
+                                       placeholder="1500 или мастер уточнит">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Гарантия</label>
                                 <select class="form-select" id="warranty">
-                                    <option value="30 дней">30 дней</option>
+                                    <option value="30 дней" selected>30 дней</option>
                                     <option value="14 дней">14 дней</option>
                                     <option value="60 дней">60 дней</option>
+                                    <option value="90 дней">90 дней</option>
+                                    <option value="Нет гарантии">Нет гарантии</option>
                                 </select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Предоплата</label>
-                                <input type="text" class="form-control" id="prepayment">
+                                <input type="text" class="form-control" id="prepayment" 
+                                       placeholder="0 или сумма">
                             </div>
                         </div>
                     </form>
@@ -452,7 +449,7 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                     <button type="button" class="btn btn-primary" onclick="saveOrder()">
-                        <i class="bi bi-save"></i> Сохранить
+                        <i class="bi bi-save"></i> Сохранить договор
                     </button>
                 </div>
             </div>
@@ -460,14 +457,16 @@
     </div>
 
     <!-- Модальное окно для просмотра заказа -->
-    <div class="modal fade" id="viewOrderModal" tabindex="-1">
+    <div class="modal fade" id="viewOrderModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="viewOrderTitle"></h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="viewOrderTitle">Просмотр заказа</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body" id="viewOrderContent"></div>
+                <div class="modal-body" id="viewOrderContent">
+                    <!-- Контент будет загружен динамически -->
+                </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
                     <button type="button" class="btn btn-primary" id="printOrderBtn">
@@ -488,24 +487,54 @@
     </div>
 
     <!-- Модальное окно для закрытия заказа -->
-    <div class="modal fade" id="closeOrderModal" tabindex="-1">
+    <div class="modal fade" id="closeOrderModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Закрытие заказа</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title">
+                        <i class="bi bi-check-circle"></i> Закрытие заказа
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <input type="hidden" id="closeOrderId">
+                    
                     <div class="mb-3">
-                        <label class="form-label">Итоговая стоимость</label>
-                        <input type="number" class="form-control" id="finalPrice" placeholder="0 - без ремонта">
+                        <label class="form-label">Клиент</label>
+                        <input type="text" class="form-control" id="closeCustomerName" readonly>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Телефон</label>
+                        <input type="text" class="form-control" id="closePhone" readonly>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Устройство</label>
+                        <input type="text" class="form-control" id="closeDevice" readonly>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Неисправность</label>
+                        <textarea class="form-control" id="closeProblem" rows="2" readonly></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Примерная стоимость</label>
+                        <input type="text" class="form-control" id="closeEstimatedPrice" readonly>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Итоговая стоимость (руб.) <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="finalPrice" 
+                               placeholder="0 - если без ремонта" min="0" step="1" required>
+                        <div class="form-text">Введите 0, если ремонт не производился</div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                     <button type="button" class="btn btn-success" onclick="confirmCloseOrder()">
-                        <i class="bi bi-check-lg"></i> Подтвердить
+                        <i class="bi bi-check-lg"></i> Подтвердить закрытие
                     </button>
                 </div>
             </div>
@@ -513,28 +542,58 @@
     </div>
 
     <!-- Модальное окно для подтверждения удаления -->
-    <div class="modal fade" id="deleteConfirmModal" tabindex="-1">
+    <div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title">Подтверждение удаления</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle"></i> Подтверждение удаления
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p>Вы уверены, что хотите удалить этот заказ?</p>
-                    <p class="text-danger"><small>Это действие нельзя отменить!</small></p>
+                    <p class="mb-0">Вы уверены, что хотите удалить этот заказ?</p>
+                    <p class="text-danger mt-2"><small>Это действие нельзя отменить! Все данные будут безвозвратно потеряны.</small></p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
                     <button type="button" class="btn btn-danger" onclick="confirmDeleteOrder()">
-                        <i class="bi bi-trash"></i> Удалить
+                        <i class="bi bi-trash"></i> Да, удалить
                     </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Подключаем Bootstrap -->
+    <!-- Модальное окно для экспорта данных -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-download"></i> Экспорт данных
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Выберите формат экспорта:</p>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-outline-primary" onclick="exportToJSON()">
+                            <i class="bi bi-file-code"></i> JSON (для резервного копирования)
+                        </button>
+                        <button class="btn btn-outline-success" onclick="exportToCSV()">
+                            <i class="bi bi-file-spreadsheet"></i> CSV (для Excel)
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Подключаем Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Подключаем основной скрипт -->
     <script src="app.js"></script>
