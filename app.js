@@ -117,8 +117,8 @@ class OrderManager {
             // Проверяем, что дата валидна
             if (isNaN(d.getTime())) return '';
             
-            // Прибавляем 3 часа для МСК (UTC+3)
-            d.setHours(d.getHours() + 3);
+            // УБИРАЕМ ПРИБАВЛЕНИЕ 3 ЧАСОВ!
+            // d.setHours(d.getHours() + 3); // <-- ЭТУ СТРОКУ НУЖНО УДАЛИТЬ
             
             // Форматируем: 15.03.2026 14:20
             const day = String(d.getDate()).padStart(2, '0');
