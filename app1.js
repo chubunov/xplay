@@ -263,16 +263,22 @@ class OrderManager {
     formatDate(date) {
         if (!date) return '';
         
+        // Если дата уже в формате ДД.ММ.ГГГГ, возвращаем как есть
         if (typeof date === 'string' && date.match(/^\d{2}\.\d{2}\.\d{4}/)) {
             return date;
         }
         
         try {
+            // Пытаемся распарсить дату
             const d = new Date(date);
+            
+            // Проверяем, что дата валидна
             if (isNaN(d.getTime())) return '';
             
-            d.setHours(d.getHours() + 3);
+            // УБИРАЕМ ПРИБАВЛЕНИЕ 3 ЧАСОВ!
+            // d.setHours(d.getHours() + 3); // <-- ЭТУ СТРОКУ НУЖНО УДАЛИТЬ
             
+            // Форматируем: 15.03.2026 14:20
             const day = String(d.getDate()).padStart(2, '0');
             const month = String(d.getMonth() + 1).padStart(2, '0');
             const year = d.getFullYear();
