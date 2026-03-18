@@ -5,85 +5,293 @@ class OrderManager {
         this.currentPage = 1;
         this.itemsPerPage = 10;
         this.currentView = 'dashboard';
-        this.isAdmin = false;
+        this.isAuthenticated = false;
         this.currentUser = null;
+        this.userRole = null;
         // ЗАМЕНИТЕ ЭТОТ URL НА ВАШ ИЗ GOOGLE APPS SCRIPT
-        this.apiUrl = 'https://script.google.com/macros/s/AKfycbz7r0G4uvcDstVbboxeZDtcsaXp8ve8SHCIvUIcXilHVFQY0vk9ltz-6Jtn-qejjb4T/exec';
+        this.apiUrl = 'https://script.google.com/macros/s/AKfycbx9hyNdAxvmzp5oJFmfChlwVWjPzb5V_L69ZD4didRL67k4ksjdp4J4_7iTxNYx9-fziw/exec';
         this.loading = false;
         this.currentOrderId = null;
         this.checkAuth();
     }
 
-    // ========== РАБОТА С ДАННЫМИ ==========
+    // ========== АВТОРИЗАЦИЯ ==========
 
-    async init() {
-        await this.loadOrders();
-        this.render();
-        this.setupEventListeners();
+    checkAuth() {
+        const saved = localStorage.getItem('xplay_auth');
+        if (saved) {
+            try {
+                const auth = JSON.parse(saved);
+                if (auth.expires > Date.now()) {
+                    this.isAuthenticated = true;
+                    this.currentUser = auth.user;
+                    this.userRole = auth.role;
+                    this.updateUIForAuth();
+                    return true;
+                }
+            } catch (e) {
+                console.error('Ошибка проверки авторизации:', e);
+            }
+        }
+        this.isAuthenticated = false;
+        this.currentUser = null;
+        this.userRole = null;
+        return false;
     }
 
-    async loadOrders() {
+    async login(login, password, remember = false) {
         this.showLoading();
         try {
-            const response = await fetch(`${this.apiUrl}?action=getOrders&t=${Date.now()}`);
+            const response = await fetch(`${this.apiUrl}?action=login&login=${encodeURIComponent(login)}&password=${encodeURIComponent(password)}&t=${Date.now()}`);
             const data = await response.json();
             
             if (data.success) {
-                // Нормализуем данные перед сохранением
+                this.isAuthenticated = true;
+                this.currentUser = data.user.login;
+                this.userRole = data.user.role;
+                
+                if (remember) {
+                    localStorage.setItem('xplay_auth', JSON.stringify({
+                        user: this.currentUser,
+                        role: this.userRole,
+                        expires: Date.now() + 30 * 24 * 60 * 60 * 1000
+                    }));
+                }
+                
+                this.updateUIForAuth();
+                this.showNotification(`✅ Добро пожаловать, ${this.currentUser}!`, 'success');
+                
+                // Загружаем данные после входа
+                await this.loadOrders();
+                this.showDashboard();
+                return true;
+            } else {
+                this.showNotification('❌ ' + (data.error || 'Неверный логин или пароль'), 'danger');
+                return false;
+            }
+        } catch (error) {
+            console.error('Ошибка входа:', error);
+            this.showNotification('❌ Ошибка соединения', 'danger');
+            return false;
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    logout() {
+        this.isAuthenticated = false;
+        this.currentUser = null;
+        this.userRole = null;
+        localStorage.removeItem('xplay_auth');
+        this.updateUIForAuth();
+        this.showLoginPage();
+        this.showNotification('👋 Выход выполнен', 'info');
+    }
+
+    isAdmin() {
+        return this.userRole === 'admin';
+    }
+
+    isManager() {
+        return this.userRole === 'manager' || this.userRole === 'admin';
+    }
+
+    updateUIForAuth() {
+        const mainMenu = document.getElementById('mainMenu');
+        const notLoggedInMenu = document.getElementById('notLoggedInMenu');
+        const loggedInMenu = document.getElementById('loggedInMenu');
+        const logoutButton = document.getElementById('logoutButton');
+        const footer = document.getElementById('footer');
+        const userName = document.getElementById('userName');
+        const userRole = document.getElementById('userRole');
+        const adminMenu = document.getElementById('adminMenu');
+        
+        if (this.isAuthenticated) {
+            // Показываем меню для авторизованных
+            if (mainMenu) mainMenu.style.display = 'flex';
+            if (notLoggedInMenu) notLoggedInMenu.style.display = 'none';
+            if (loggedInMenu) loggedInMenu.style.display = 'block';
+            if (logoutButton) logoutButton.style.display = 'block';
+            if (footer) footer.style.display = 'block';
+            
+            // Отображаем информацию о пользователе
+            if (userName) userName.textContent = this.currentUser || 'Пользователь';
+            if (userRole) {
+                userRole.textContent = this.isAdmin() ? 'Админ' : 'Менеджер';
+                userRole.style.background = this.isAdmin() ? 'rgba(255,215,0,0.3)' : 'rgba(255,255,255,0.3)';
+            }
+            
+            // Показываем админское меню только для админа
+            if (adminMenu) {
+                adminMenu.style.display = this.isAdmin() ? 'block' : 'none';
+            }
+        } else {
+            // Скрываем всё для неавторизованных
+            if (mainMenu) mainMenu.style.display = 'none';
+            if (notLoggedInMenu) notLoggedInMenu.style.display = 'block';
+            if (loggedInMenu) loggedInMenu.style.display = 'none';
+            if (logoutButton) logoutButton.style.display = 'none';
+            if (footer) footer.style.display = 'none';
+            if (adminMenu) adminMenu.style.display = 'none';
+        }
+    }
+
+    showLoginPage() {
+        const content = document.getElementById('mainContent');
+        content.innerHTML = `
+            <div class="login-container">
+                <div class="card">
+                    <div class="card-header text-center">
+                        <h4><i class="bi bi-controller"></i> Xplay Сервис</h4>
+                    </div>
+                    <div class="card-body">
+                        <h5 class="text-center mb-4">Вход в систему</h5>
+                        <div class="mb-3">
+                            <label class="form-label">Логин</label>
+                            <input type="text" class="form-control" id="loginInput" placeholder="Введите логин">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Пароль</label>
+                            <input type="password" class="form-control" id="passwordInput" placeholder="Введите пароль">
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="rememberMe">
+                            <label class="form-check-label">Запомнить меня</label>
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="login()">
+                            <i class="bi bi-box-arrow-in-right"></i> Войти
+                        </button>
+                    </div>
+                    <div class="card-footer text-center text-muted">
+                        <small>Тула, Центральный переулок д.18 | +7(902)904-73-35</small>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ========== РАБОТА С ДАННЫМИ ==========
+
+    async init() {
+        if (this.isAuthenticated) {
+            await this.loadOrders();
+            this.render();
+        } else {
+            this.showLoginPage();
+        }
+        this.setupEventListeners();
+    }
+
+    async loadOrders(force = false) {
+        if (!this.isAuthenticated) return;
+        
+        this.showLoading();
+        try {
+            // Если force = true, добавляем параметр для сброса кэша на сервере
+            const url = force 
+                ? `${this.apiUrl}?action=getOrders&t=${Date.now()}&force=true`
+                : `${this.apiUrl}?action=getOrders&t=${Date.now()}`;
+            
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.success) {
                 this.orders = (data.orders || []).map(order => this.normalizeOrder(order));
                 this.saveToCache();
                 this.hideLoading();
+                
+                // Если это принудительная загрузка, показываем уведомление
+                if (force) {
+                    this.showNotification('Данные обновлены с сервера', 'info');
+                }
             } else {
-                this.loadFromCache();
+                // Если сервер вернул ошибку, пробуем загрузить из кэша
+                if (!this.loadFromCache()) {
+                    this.showNotification('Не удалось загрузить данные с сервера', 'warning');
+                }
             }
         } catch (error) {
             console.error('Ошибка загрузки:', error);
-            this.loadFromCache();
-            this.showNotification('Ошибка соединения, используем кэш', 'warning');
+            // При ошибке сети пробуем загрузить из кэша
+            if (!this.loadFromCache()) {
+                this.showNotification('Ошибка соединения', 'warning');
+            }
+        } finally {
+            this.hideLoading();
         }
-        this.hideLoading();
     }
-
-    // Нормализация данных заказа (преобразование всех полей в строки)
+    
     normalizeOrder(order) {
         if (!order) return {};
         
         const normalized = {};
         
-        // Преобразуем каждое поле в строку
+        // Специальная обработка для важных полей
+        const importantFields = ['id', 'ordernumber', 'customername', 'phone', 'status'];
+        
         Object.keys(order).forEach(key => {
             const value = order[key];
             if (value === null || value === undefined) {
                 normalized[key] = '';
             } else if (typeof value === 'object') {
-                // Если вдруг пришел объект, преобразуем в JSON строку
                 normalized[key] = JSON.stringify(value);
             } else {
                 normalized[key] = String(value);
             }
         });
         
+        // Убеждаемся, что важные поля существуют
+        importantFields.forEach(field => {
+            if (!(field in normalized)) {
+                normalized[field] = '';
+            }
+        });
+        
         return normalized;
     }
-
+    
     saveToCache() {
-        localStorage.setItem('xplay_orders_cache', JSON.stringify({
-            orders: this.orders,
-            timestamp: Date.now()
-        }));
+        try {
+            localStorage.setItem('xplay_orders_cache', JSON.stringify({
+                orders: this.orders,
+                timestamp: Date.now()
+            }));
+            return true;
+        } catch (e) {
+            console.error('Ошибка сохранения в кэш:', e);
+            return false;
+        }
     }
-
+    
     loadFromCache() {
         const cached = localStorage.getItem('xplay_orders_cache');
         if (cached) {
             try {
                 const data = JSON.parse(cached);
-                this.orders = (data.orders || []).map(order => this.normalizeOrder(order));
+                if (data.orders && Array.isArray(data.orders)) {
+                    this.orders = data.orders.map(order => this.normalizeOrder(order));
+                    console.log(`Загружено ${this.orders.length} заказов из кэша`);
+                    return true;
+                }
             } catch (e) {
                 console.error('Ошибка загрузки из кэша:', e);
-                this.orders = [];
             }
         }
+        this.orders = [];
+        return false;
+    }
+    
+    // Добавляем метод для очистки кэша (полезно для администратора)
+    clearCache() {
+        if (!this.isAdmin()) {
+            this.showNotification('❌ Только администратор может очищать кэш', 'danger');
+            return;
+        }
+        
+        localStorage.removeItem('xplay_orders_cache');
+        this.orders = [];
+        this.showNotification('Кэш очищен', 'success');
+        this.loadOrders(true); // Принудительно загружаем с сервера
     }
 
     // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕКСТА ==========
@@ -110,27 +318,27 @@ class OrderManager {
             return date;
         }
         
+        // Если дата в формате "15.03.2026, 15:53" из Google Sheets
+        if (typeof date === 'string' && date.includes(',')) {
+            // Возвращаем как есть, без изменений
+            return date.trim();
+        }
+        
         try {
-            // Пытаемся распарсить дату
             const d = new Date(date);
-            
-            // Проверяем, что дата валидна
             if (isNaN(d.getTime())) return '';
             
-            // УБИРАЕМ ПРИБАВЛЕНИЕ 3 ЧАСОВ!
-            // d.setHours(d.getHours() + 3); // <-- ЭТУ СТРОКУ НУЖНО УДАЛИТЬ
-            
-            // Форматируем: 15.03.2026 14:20
-            const day = String(d.getDate()).padStart(2, '0');
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const year = d.getFullYear();
-            const hours = String(d.getHours()).padStart(2, '0');
-            const minutes = String(d.getMinutes()).padStart(2, '0');
+            // Получаем компоненты даты в UTC, чтобы избежать смещения
+            const day = String(d.getUTCDate()).padStart(2, '0');
+            const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const year = d.getUTCFullYear();
+            const hours = String(d.getUTCHours()).padStart(2, '0');
+            const minutes = String(d.getUTCMinutes()).padStart(2, '0');
             
             return `${day}.${month}.${year} ${hours}:${minutes}`;
         } catch (e) {
             console.error('Ошибка форматирования даты:', e);
-            return '';
+            return date;
         }
     }
 
@@ -140,30 +348,21 @@ class OrderManager {
         const phoneStr = this.safeString(phone);
         if (!phoneStr) return '';
         
-        // Сохраняем оригинал для отладки
         const original = phoneStr;
-        
-        // Удаляем все кроме цифр и знака +
         let cleaned = phoneStr.replace(/[^\d+]/g, '');
         
-        // Если начинается с 8, заменяем на +7
         if (cleaned.startsWith('8')) {
             cleaned = '+7' + cleaned.substring(1);
         }
         
-        // Если есть цифры, но нет +, добавляем +7
         if (cleaned.length >= 10 && !cleaned.startsWith('+')) {
-            // Если начинается с 7, добавляем +
             if (cleaned.startsWith('7')) {
                 cleaned = '+' + cleaned;
-            } 
-            // Если начинается с другой цифры, добавляем +7
-            else {
+            } else {
                 cleaned = '+7' + cleaned;
             }
         }
         
-        // Обрезаем до 12 символов (+7 и 10 цифр)
         if (cleaned.length > 12) {
             cleaned = cleaned.substring(0, 12);
         }
@@ -176,24 +375,17 @@ class OrderManager {
         const phoneStr = this.safeString(phone);
         if (!phoneStr) return '';
         
-        // Если уже отформатирован, возвращаем как есть
         if (phoneStr.includes('(') || phoneStr.includes('-')) {
             return phoneStr;
         }
         
-        // Форматируем +7XXXXXXXXXX в +7 (XXX) XXX-XX-XX
         const cleaned = phoneStr.replace(/\D/g, '');
         
-        // Для российских номеров (+7)
         if (cleaned.length === 11 && cleaned.startsWith('7')) {
             return `+7 (${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7, 9)}-${cleaned.substring(9, 11)}`;
-        }
-        // Для 10-значных номеров (без +7)
-        else if (cleaned.length === 10) {
+        } else if (cleaned.length === 10) {
             return `+7 (${cleaned.substring(0, 3)}) ${cleaned.substring(3, 6)}-${cleaned.substring(6, 8)}-${cleaned.substring(8, 10)}`;
-        }
-        // Для 11-значных с 8
-        else if (cleaned.length === 11 && cleaned.startsWith('8')) {
+        } else if (cleaned.length === 11 && cleaned.startsWith('8')) {
             return `+7 (${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7, 9)}-${cleaned.substring(9, 11)}`;
         }
         
@@ -203,35 +395,52 @@ class OrderManager {
     // ========== РАБОТА С ЗАКАЗАМИ ==========
 
     async createOrder(orderData) {
+        if (!this.isManager()) {
+            this.showNotification('❌ Недостаточно прав', 'danger');
+            return false;
+        }
+        
         this.showLoading();
         try {
-            // Очищаем телефон перед отправкой
             const cleanedPhone = this.cleanPhoneNumber(orderData.phone);
             orderData.phone = cleanedPhone;
             
             console.log('Создание заказа с телефоном:', cleanedPhone);
             
-            const formData = new FormData();
-            formData.append('action', 'createOrder');
+            // Формируем URL с параметрами для GET-запроса
+            const params = new URLSearchParams();
+            params.append('action', 'createOrder');
             Object.keys(orderData).forEach(key => {
-                formData.append(key, this.safeString(orderData[key]));
+                params.append(key, this.safeString(orderData[key]));
             });
             
-            const response = await fetch(this.apiUrl, {
-                method: 'POST',
-                body: formData
+            // Добавляем timestamp для избежания кеширования
+            params.append('t', Date.now());
+            
+            // Отправляем запрос на сервер
+            await fetch(`${this.apiUrl}?${params.toString()}`, {
+                method: 'GET',
+                mode: 'no-cors'
             });
             
-            const data = await response.json();
+            // Ждем немного, чтобы сервер обработал запрос
+            await new Promise(resolve => setTimeout(resolve, 1500));
             
-            if (data.success) {
-                await this.loadOrders(); // Перезагружаем заказы
-                this.showNotification('✅ Заказ успешно создан!', 'success');
-                return true;
+            // Принудительно загружаем заказы с сервера (force = true)
+            await this.loadOrders(true);
+            
+            // Обновляем отображение в зависимости от текущего вида
+            if (this.currentView === 'active') {
+                this.renderActiveOrders();
+            } else if (this.currentView === 'dashboard') {
+                this.renderDashboard();
             } else {
-                this.showNotification('❌ Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
-                return false;
+                this.render();
             }
+            
+            this.showNotification('✅ Заказ успешно создан!', 'success');
+            return true;
+            
         } catch (error) {
             console.error('Ошибка создания:', error);
             this.showNotification('❌ Ошибка при создании заказа', 'danger');
@@ -242,6 +451,11 @@ class OrderManager {
     }
 
     async updateOrder(id, updates) {
+        if (!this.isManager()) {
+            this.showNotification('❌ Недостаточно прав', 'danger');
+            return false;
+        }
+        
         this.showLoading();
         try {
             const formData = new FormData();
@@ -257,7 +471,7 @@ class OrderManager {
             const data = await response.json();
             
             if (data.success) {
-                await this.loadOrders(); // Перезагружаем заказы
+                await this.loadOrders();
                 this.showNotification('✅ Заказ обновлен', 'success');
                 return true;
             }
@@ -274,7 +488,7 @@ class OrderManager {
         return this.updateOrder(id, {
             status: 'Выдан',
             finalPrice: finalPrice,
-            completionDate: this.formatDate(new Date()) // Используем форматированную дату
+            completionDate: new Date().toLocaleString('ru-RU', { timeZone: 'UTC' }) // Явно указываем UTC
         });
     }
 
@@ -286,6 +500,14 @@ class OrderManager {
         });
     }
 
+    async deleteOrder(id) {
+        if (!this.isAdmin()) {
+            this.showNotification('❌ Только администратор может удалять заказы', 'danger');
+            return;
+        }
+        this.showDeleteConfirmation(id);
+    }
+
     // ========== ФУНКЦИИ ДЛЯ УДАЛЕНИЯ ==========
 
     showDeleteConfirmation(id) {
@@ -295,6 +517,11 @@ class OrderManager {
     }
 
     async confirmDeleteOrder() {
+        if (!this.isAdmin()) {
+            this.showNotification('❌ Только администратор может удалять заказы', 'danger');
+            return;
+        }
+        
         console.log('========== НАЧИНАЕМ УДАЛЕНИЕ ==========');
         console.log('1. ID заказа для удаления:', this.currentOrderId);
         console.log('2. URL API:', this.apiUrl);
@@ -305,7 +532,6 @@ class OrderManager {
             return;
         }
         
-        // Скрываем модальное окно подтверждения
         bootstrap.Modal.getInstance(document.getElementById('deleteConfirmModal')).hide();
         this.showLoading();
         
@@ -334,16 +560,12 @@ class OrderManager {
             if (data.success) {
                 console.log('✅ Удаление успешно!');
                 
-                // Обновляем список заказов
                 await this.loadOrders();
                 
-                // Закрываем окно просмотра заказа
                 const viewModal = bootstrap.Modal.getInstance(document.getElementById('viewOrderModal'));
                 if (viewModal) viewModal.hide();
                 
                 this.showNotification('✅ Заказ успешно удален', 'success');
-                
-                // Обновляем текущее представление
                 this.render();
             } else {
                 console.log('❌ Ошибка от сервера:', data.error);
@@ -357,87 +579,6 @@ class OrderManager {
             this.hideLoading();
             this.currentOrderId = null;
             console.log('========== УДАЛЕНИЕ ЗАВЕРШЕНО ==========');
-        }
-    }
-
-    async deleteOrder(id) {
-        console.log('Вызвано deleteOrder с id:', id);
-        this.showDeleteConfirmation(id);
-    }
-
-    // ========== АВТОРИЗАЦИЯ ==========
-
-    async login(password, remember = false) {
-        try {
-            const response = await fetch(`${this.apiUrl}?action=login&password=${password}&t=${Date.now()}`);
-            const data = await response.json();
-            
-            if (data.success) {
-                this.isAdmin = true;
-                this.currentUser = 'admin';
-                
-                if (remember) {
-                    localStorage.setItem('xplay_auth', JSON.stringify({
-                        user: 'admin',
-                        expires: Date.now() + 30 * 24 * 60 * 60 * 1000
-                    }));
-                }
-                
-                this.updateUIForAuth();
-                this.showNotification('✅ Вход выполнен успешно', 'success');
-                return true;
-            } else {
-                this.showNotification('❌ Неверный пароль', 'danger');
-                return false;
-            }
-        } catch (error) {
-            console.error('Ошибка входа:', error);
-            this.showNotification('❌ Ошибка соединения', 'danger');
-            return false;
-        }
-    }
-
-    logout() {
-        this.isAdmin = false;
-        this.currentUser = null;
-        localStorage.removeItem('xplay_auth');
-        this.updateUIForAuth();
-        this.showDashboard();
-        this.showNotification('👋 Выход выполнен', 'info');
-    }
-
-    checkAuth() {
-        const saved = localStorage.getItem('xplay_auth');
-        if (saved) {
-            const auth = JSON.parse(saved);
-            if (auth.expires > Date.now()) {
-                this.isAdmin = true;
-                this.currentUser = auth.user;
-            }
-        }
-        this.updateUIForAuth();
-    }
-
-    updateUIForAuth() {
-        const adminMenu = document.getElementById('adminMenu');
-        const authButtons = document.getElementById('authButtons');
-        const userMenu = document.getElementById('userMenu');
-        const logoutButton = document.getElementById('logoutButton');
-        const userName = document.getElementById('userName');
-        
-        if (adminMenu && authButtons && userMenu && logoutButton) {
-            if (this.isAdmin) {
-                adminMenu.style.display = 'block';
-                authButtons.style.display = 'none';
-                userMenu.style.display = 'block';
-                logoutButton.style.display = 'block';
-                if (userName) userName.innerHTML = '<i class="bi bi-person-badge"></i> Админ';
-            } else {
-                adminMenu.style.display = 'none';
-                authButtons.style.display = 'block';
-                userMenu.style.display = 'none';
-                logoutButton.style.display = 'none';
-            }
         }
     }
 
@@ -486,8 +627,6 @@ class OrderManager {
 
     searchOrders(query) {
         const queryStr = this.safeString(query).toLowerCase().trim();
-        
-        // Очищаем запрос для поиска
         const cleanQuery = queryStr.replace(/[^\d+]/g, '');
         
         return this.orders.filter(o => {
@@ -496,7 +635,6 @@ class OrderManager {
             const customerName = this.safeString(o.customername).toLowerCase();
             const orderNumber = this.safeString(o.ordernumber).toLowerCase();
             
-            // Ищем по оригинальному запросу и по очищенному
             return phone.includes(queryStr) || 
                    cleanPhone.includes(cleanQuery) ||
                    customerName.includes(queryStr) || 
@@ -660,14 +798,19 @@ class OrderManager {
                         <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
                         <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
                         <tr><td>Дата приема:</td><td>${this.formatDate(order.acceptancedate)}</td></tr>
-                        <tr><td>Срок ремонта:</td><td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td></tr>
+                        <tr><td>Приблизительный срок ремонта:</td><td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td></tr>
                     </table>
                     
                     <div class="conditions">
                         <h6>Условия:</h6>
                         1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
                         2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
-                        3. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ: 300 руб. - аксессуары, 800 руб. - игровые консоли.
+                        3. Устройство с согласия Заказчика принято без разборки и без проверки внутренних повреждений. Заказчик согласен, что все неисправности и внутренние повреждения, которые могут быть обнаружены в устройстве при техническом обслуживании, возникли до приема устройства по данному договору. <br>
+                        4. Исполнитель предупреждает Заказчика о возможном изменении проявления неисправности при проведении диагностики, если неисправность устройства вызвана попаданием жидкости или механическим повреждением. <br>
+                        5. На выполненную работу и установленные запчасти Исполнитель предоставляет гарантию. Условия и срок гарантия зависят от устраненной неисправности и указаны в Акте выполненных работ. <br>
+                        6. При утере договора получить аппарат Заказчик может при предъявлении паспорта. <br>
+                        7. В случае неявки Заказчика за получением результата выполненной работы Исполнитель вправе, письменно предупредив Заказчик, по истечении двух месяцев со дня такого предупреждения продать результат работы за разумную цену, а вырученную сумму, за вычетом всех причитающихся Исполнителю платежей, внести в депозит в порядке, предусмотренном статьей 327 Гражданского кодекса Российской Федерации. <br> 
+                        8. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ: 300 руб. - аксессуары, 800 руб. - игровые консоли. 
                     </div>
                     
                     <div class="signature">
@@ -690,6 +833,7 @@ class OrderManager {
                         <tr><td>Устройство:</td><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
                         <tr><td>S/N:</td><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
                         <tr><td>Неисправность:</td><td>${this.safeString(order.problem)}</td></tr>
+                        <tr><td>Примерная стоимость:</td><td>${this.safeString(order.estimatedprice)} ${!this.safeString(order.estimatedprice).includes('уточнит') ? 'руб.' : ''}</td></tr>
                         <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
                         <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
                         <tr><td>Статус:</td><td>${this.safeString(order.status) || 'Принят'}</td></tr>
@@ -701,7 +845,6 @@ class OrderManager {
                     
                     <div class="conditions" style="margin-top: 5px;">
                         <h6>ДЛЯ ЗАМЕТОК:</h6>
-                        _________________________________________________________________<br>
                         _________________________________________________________________<br>
                         _________________________________________________________________<br>
                     </div>
@@ -776,24 +919,6 @@ class OrderManager {
         
         html += `
                 </table>
-                
-                <div class="mt-4">
-                    <h6>Условия:</h6>
-                    <small>
-                        1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
-                        2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
-                        3. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ в размере 300 рублей - аксессуары, 800 рублей - игровые консоли.
-                    </small>
-                </div>
-                
-                <div class="row mt-4">
-                    <div class="col-6">
-                        <p>Клиент: _________________________</p>
-                    </div>
-                    <div class="col-6 text-end">
-                        <p>Мастер: _________________________</p>
-                    </div>
-                </div>
             </div>
         `;
         
@@ -806,7 +931,7 @@ class OrderManager {
         
         printBtn.onclick = () => this.printOrder(order);
         
-        if (this.isAdmin) {
+        if (this.isManager()) {
             if (this.safeString(order.status) !== 'Выдан') {
                 closeBtn.style.display = 'inline-block';
                 closeBtn.onclick = () => this.showCloseOrderForm(order);
@@ -816,8 +941,14 @@ class OrderManager {
                 restoreBtn.style.display = 'inline-block';
                 restoreBtn.onclick = () => this.restoreOrder(order.id);
             }
-            deleteBtn.style.display = 'inline-block';
-            deleteBtn.onclick = () => this.showDeleteConfirmation(order.id);
+            
+            // Кнопка удаления только для админа
+            if (this.isAdmin()) {
+                deleteBtn.style.display = 'inline-block';
+                deleteBtn.onclick = () => this.deleteOrder(order.id);
+            } else {
+                deleteBtn.style.display = 'none';
+            }
         } else {
             closeBtn.style.display = 'none';
             restoreBtn.style.display = 'none';
@@ -859,11 +990,17 @@ class OrderManager {
     // ========== ОТОБРАЖЕНИЕ ИНТЕРФЕЙСА ==========
 
     render() {
+        if (!this.isAuthenticated) {
+            this.showLoginPage();
+            return;
+        }
+        
         switch(this.currentView) {
             case 'dashboard': this.renderDashboard(); break;
             case 'active': this.renderActiveOrders(); break;
             case 'completed': this.renderCompletedOrders(); break;
             case 'search': this.renderSearch(); break;
+            default: this.renderDashboard();
         }
     }
 
@@ -1003,7 +1140,7 @@ class OrderManager {
     }
 
     renderCompletedOrders() {
-        if (!this.isAdmin) {
+        if (!this.isAuthenticated || !this.isAdmin()) {
             this.showNotification('Только для администратора', 'warning');
             return;
         }
@@ -1214,6 +1351,11 @@ class OrderManager {
     }
 
     showNewOrderForm() {
+        if (!this.isManager()) {
+            this.showNotification('❌ Недостаточно прав', 'danger');
+            return;
+        }
+        
         document.getElementById('orderModalTitle').textContent = 'Новый договор';
         document.getElementById('orderForm').reset();
         document.getElementById('orderId').value = '';
@@ -1221,6 +1363,11 @@ class OrderManager {
     }
 
     async saveOrder() {
+        if (!this.isManager()) {
+            this.showNotification('❌ Недостаточно прав', 'danger');
+            return;
+        }
+        
         const form = document.getElementById('orderForm');
         
         if (!form.checkValidity()) {
@@ -1228,7 +1375,6 @@ class OrderManager {
             return;
         }
         
-        // Получаем телефон и очищаем его
         let phone = document.getElementById('phone').value;
         const cleanedPhone = this.cleanPhoneNumber(phone);
         
@@ -1252,7 +1398,6 @@ class OrderManager {
         const success = await this.createOrder(orderData);
         if (success) {
             bootstrap.Modal.getInstance(document.getElementById('orderModal')).hide();
-            // После успешного создания сразу показываем активные заказы
             this.showActiveOrders();
         }
     }
@@ -1260,19 +1405,31 @@ class OrderManager {
     // ========== НАВИГАЦИЯ ==========
 
     showDashboard() {
+        if (!this.isAuthenticated) {
+            this.showLoginPage();
+            return;
+        }
         this.currentView = 'dashboard';
         this.currentPage = 1;
         this.render();
     }
 
     showActiveOrders() {
+        if (!this.isAuthenticated) {
+            this.showLoginPage();
+            return;
+        }
         this.currentView = 'active';
         this.currentPage = 1;
         this.render();
     }
 
     showCompletedOrders() {
-        if (!this.isAdmin) {
+        if (!this.isAuthenticated) {
+            this.showLoginPage();
+            return;
+        }
+        if (!this.isAdmin()) {
             this.showNotification('Только для администратора', 'warning');
             return;
         }
@@ -1282,6 +1439,10 @@ class OrderManager {
     }
 
     showSearch() {
+        if (!this.isAuthenticated) {
+            this.showLoginPage();
+            return;
+        }
         this.currentView = 'search';
         this.render();
     }
@@ -1313,16 +1474,21 @@ function showSearch() { orderManager.showSearch(); }
 function showNewOrderForm() { orderManager.showNewOrderForm(); }
 
 // Авторизация
-function showLogin() { new bootstrap.Modal(document.getElementById('loginModal')).show(); }
+function showLogin() { 
+    orderManager.showLoginPage(); 
+}
 
 async function login() {
-    const password = document.getElementById('adminPassword').value;
+    const login = document.getElementById('loginInput').value;
+    const password = document.getElementById('passwordInput').value;
     const remember = document.getElementById('rememberMe').checked;
-    const success = await orderManager.login(password, remember);
-    if (success) {
-        bootstrap.Modal.getInstance(document.getElementById('loginModal')).hide();
-        orderManager.showDashboard();
+    
+    if (!login || !password) {
+        orderManager.showNotification('Введите логин и пароль', 'warning');
+        return;
     }
+    
+    await orderManager.login(login, password, remember);
 }
 
 function logout() { orderManager.logout(); }
@@ -1393,5 +1559,4 @@ function exportToCSV() {
 // ========== ЗАПУСК ==========
 document.addEventListener('DOMContentLoaded', async () => {
     await orderManager.init();
-    orderManager.showDashboard();
 });
