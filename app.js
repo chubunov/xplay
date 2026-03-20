@@ -1090,11 +1090,25 @@ class OrderManager {
     }
 
     renderRecentOrders() {
-        // Сортируем заказы по дате приема от новых к старым
+        // Сортируем заказы: сначала активные (статус не "Выдан"), потом выданные, внутри каждой группы по дате (новые выше)
         const sortedOrders = [...this.orders].sort((a, b) => {
+            const statusA = this.safeString(a.status);
+            const statusB = this.safeString(b.status);
+            
+            // Определяем приоритет: активные (не "Выдан") имеют приоритет 1, выданные - 0
+            const isActiveA = statusA !== 'Выдан';
+            const isActiveB = statusB !== 'Выдан';
+            
+            // Сначала сравниваем по активности
+            if (isActiveA !== isActiveB) {
+                // Активные выше (возвращаем -1 если A активный, B нет)
+                return isActiveA ? -1 : 1;
+            }
+            
+            // Если статус одинаковый, сортируем по дате (новые выше)
             const dateA = this.parseDate(a.acceptancedate);
             const dateB = this.parseDate(b.acceptancedate);
-            return dateB - dateA; // Сначала новые
+            return dateB - dateA;
         });
         
         const recent = sortedOrders.slice(0, 5);
