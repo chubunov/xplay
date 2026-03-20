@@ -42,7 +42,14 @@ class OrderManager {
     async login(login, password, remember = false) {
         this.showLoading();
         try {
+            // Используем JSONP подход или убираем no-cors
             const response = await fetch(`${this.apiUrl}?action=login&login=${encodeURIComponent(login)}&password=${encodeURIComponent(password)}&t=${Date.now()}`);
+            
+            // Проверяем, что ответ успешный
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             const data = await response.json();
             
             if (data.success) {
@@ -61,7 +68,6 @@ class OrderManager {
                 this.updateUIForAuth();
                 this.showNotification(`✅ Добро пожаловать, ${this.currentUser}!`, 'success');
                 
-                // Загружаем данные после входа
                 await this.loadOrders();
                 this.showDashboard();
                 return true;
@@ -71,7 +77,7 @@ class OrderManager {
             }
         } catch (error) {
             console.error('Ошибка входа:', error);
-            this.showNotification('❌ Ошибка соединения', 'danger');
+            this.showNotification('❌ Ошибка соединения с сервером. Проверьте интернет и URL скрипта', 'danger');
             return false;
         } finally {
             this.hideLoading();
@@ -182,33 +188,52 @@ class OrderManager {
         this.setupEventListeners();
     }
 
-    async loadOrders() {
+    async loadOrders(force = false) {
         if (!this.isAuthenticated) return;
         
         this.showLoading();
         try {
-            const response = await fetch(`${this.apiUrl}?action=getOrders&t=${Date.now()}`);
+            // Если force = true, добавляем параметр для сброса кэша на сервере
+            const url = force 
+                ? `${this.apiUrl}?action=getOrders&t=${Date.now()}&force=true`
+                : `${this.apiUrl}?action=getOrders&t=${Date.now()}`;
+            
+            const response = await fetch(url);
             const data = await response.json();
             
             if (data.success) {
                 this.orders = (data.orders || []).map(order => this.normalizeOrder(order));
                 this.saveToCache();
                 this.hideLoading();
+                
+                // Если это принудительная загрузка, показываем уведомление
+                if (force) {
+                    this.showNotification('Данные обновлены с сервера', 'info');
+                }
             } else {
-                this.loadFromCache();
+                // Если сервер вернул ошибку, пробуем загрузить из кэша
+                if (!this.loadFromCache()) {
+                    this.showNotification('Не удалось загрузить данные с сервера', 'warning');
+                }
             }
         } catch (error) {
             console.error('Ошибка загрузки:', error);
-            this.loadFromCache();
-            this.showNotification('Ошибка соединения, используем кэш', 'warning');
+            // При ошибке сети пробуем загрузить из кэша
+            if (!this.loadFromCache()) {
+                this.showNotification('Ошибка соединения', 'warning');
+            }
+        } finally {
+            this.hideLoading();
         }
-        this.hideLoading();
     }
-
+    
     normalizeOrder(order) {
         if (!order) return {};
         
         const normalized = {};
+        
+        // Специальная обработка для важных полей
+        const importantFields = ['id', 'ordernumber', 'customername', 'phone', 'status'];
         
         Object.keys(order).forEach(key => {
             const value = order[key];
@@ -221,27 +246,58 @@ class OrderManager {
             }
         });
         
+        // Убеждаемся, что важные поля существуют
+        importantFields.forEach(field => {
+            if (!(field in normalized)) {
+                normalized[field] = '';
+            }
+        });
+        
         return normalized;
     }
-
+    
     saveToCache() {
-        localStorage.setItem('xplay_orders_cache', JSON.stringify({
-            orders: this.orders,
-            timestamp: Date.now()
-        }));
+        try {
+            localStorage.setItem('xplay_orders_cache', JSON.stringify({
+                orders: this.orders,
+                timestamp: Date.now()
+            }));
+            return true;
+        } catch (e) {
+            console.error('Ошибка сохранения в кэш:', e);
+            return false;
+        }
     }
-
+    
     loadFromCache() {
         const cached = localStorage.getItem('xplay_orders_cache');
         if (cached) {
             try {
                 const data = JSON.parse(cached);
-                this.orders = (data.orders || []).map(order => this.normalizeOrder(order));
+                if (data.orders && Array.isArray(data.orders)) {
+                    this.orders = data.orders.map(order => this.normalizeOrder(order));
+                    console.log(`Загружено ${this.orders.length} заказов из кэша`);
+                    return true;
+                }
             } catch (e) {
                 console.error('Ошибка загрузки из кэша:', e);
-                this.orders = [];
             }
         }
+        this.orders = [];
+        return false;
+    }
+    
+    // Добавляем метод для очистки кэша (полезно для администратора)
+    clearCache() {
+        if (!this.isAdmin()) {
+            this.showNotification('❌ Только администратор может очищать кэш', 'danger');
+            return;
+        }
+        
+        localStorage.removeItem('xplay_orders_cache');
+        this.orders = [];
+        this.showNotification('Кэш очищен', 'success');
+        this.loadOrders(true); // Принудительно загружаем с сервера
     }
 
     // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕКСТА ==========
@@ -290,6 +346,29 @@ class OrderManager {
             console.error('Ошибка форматирования даты:', e);
             return date;
         }
+    }
+
+    parseDate(dateStr) {
+        if (!dateStr) return new Date(0);
+        
+        // Если дата в формате "15.03.2026, 15:53"
+        if (typeof dateStr === 'string' && dateStr.includes(',')) {
+            const [datePart, timePart] = dateStr.split(', ');
+            const [day, month, year] = datePart.split('.');
+            const [hours, minutes] = timePart.split(':');
+            // Создаем дату в UTC, чтобы избежать смещения часового пояса
+            return new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hours), parseInt(minutes)));
+        }
+        
+        // Если дата в формате "15.03.2026"
+        if (typeof dateStr === 'string' && dateStr.match(/^\d{2}\.\d{2}\.\d{4}/)) {
+            const [day, month, year] = dateStr.split('.');
+            return new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day)));
+        }
+        
+        // Пробуем стандартный парсинг
+        const date = new Date(dateStr);
+        return isNaN(date.getTime()) ? new Date(0) : date;
     }
 
     // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕЛЕФОНА ==========
@@ -357,27 +436,40 @@ class OrderManager {
             
             console.log('Создание заказа с телефоном:', cleanedPhone);
             
-            const formData = new FormData();
-            formData.append('action', 'createOrder');
+            // Формируем URL с параметрами для GET-запроса
+            const params = new URLSearchParams();
+            params.append('action', 'createOrder');
             Object.keys(orderData).forEach(key => {
-                formData.append(key, this.safeString(orderData[key]));
+                params.append(key, this.safeString(orderData[key]));
             });
             
-            const response = await fetch(this.apiUrl, {
-                method: 'POST',
-                body: formData
+            // Добавляем timestamp для избежания кеширования
+            params.append('t', Date.now());
+            
+            // Отправляем запрос на сервер
+            await fetch(`${this.apiUrl}?${params.toString()}`, {
+                method: 'GET',
+                mode: 'no-cors'
             });
             
-            const data = await response.json();
+            // Ждем немного, чтобы сервер обработал запрос
+            await new Promise(resolve => setTimeout(resolve, 1500));
             
-            if (data.success) {
-                await this.loadOrders();
-                this.showNotification('✅ Заказ успешно создан!', 'success');
-                return true;
+            // Принудительно загружаем заказы с сервера (force = true)
+            await this.loadOrders(true);
+            
+            // Обновляем отображение в зависимости от текущего вида
+            if (this.currentView === 'active') {
+                this.renderActiveOrders();
+            } else if (this.currentView === 'dashboard') {
+                this.renderDashboard();
             } else {
-                this.showNotification('❌ Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
-                return false;
+                this.render();
             }
+            
+            this.showNotification('✅ Заказ успешно создан!', 'success');
+            return true;
+            
         } catch (error) {
             console.error('Ошибка создания:', error);
             this.showNotification('❌ Ошибка при создании заказа', 'danger');
@@ -1004,7 +1096,28 @@ class OrderManager {
     }
 
     renderRecentOrders() {
-        const recent = this.orders.slice(0, 5);
+        // Сортируем заказы: сначала активные (статус не "Выдан"), потом выданные, внутри каждой группы по дате (новые выше)
+        const sortedOrders = [...this.orders].sort((a, b) => {
+            const statusA = this.safeString(a.status);
+            const statusB = this.safeString(b.status);
+            
+            // Определяем приоритет: активные (не "Выдан") имеют приоритет 1, выданные - 0
+            const isActiveA = statusA !== 'Выдан';
+            const isActiveB = statusB !== 'Выдан';
+            
+            // Сначала сравниваем по активности
+            if (isActiveA !== isActiveB) {
+                // Активные выше (возвращаем -1 если A активный, B нет)
+                return isActiveA ? -1 : 1;
+            }
+            
+            // Если статус одинаковый, сортируем по дате (новые выше)
+            const dateA = this.parseDate(a.acceptancedate);
+            const dateB = this.parseDate(b.acceptancedate);
+            return dateB - dateA;
+        });
+        
+        const recent = sortedOrders.slice(0, 5);
         if (recent.length === 0) {
             return '<p class="text-muted">Нет заказов</p>';
         }
