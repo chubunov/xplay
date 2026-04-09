@@ -598,6 +598,7 @@ class OrderManager {
 
     // ========== РАБОТА С ЗАКАЗАМИ ==========
 
+    // ========== ИСПРАВЛЕННЫЙ МЕТОД createOrder ==========
     async createOrder(orderData) {
         if (!this.isManager()) {
             this.showNotification('❌ Недостаточно прав', 'danger');
@@ -605,12 +606,17 @@ class OrderManager {
         }
         
         this.showLoading();
+        
+        // Показываем прогресс создания
+        this.showProgressBar('Создание заказа...', 20);
+        
         try {
             const cleanedPhone = this.cleanPhoneNumber(orderData.phone);
             orderData.phone = cleanedPhone;
             
             console.log('Создание заказа с телефоном:', cleanedPhone);
             
+            // Формируем URL с параметрами
             const params = new URLSearchParams();
             params.append('action', 'createOrder');
             Object.keys(orderData).forEach(key => {
@@ -619,32 +625,61 @@ class OrderManager {
             
             params.append('t', Date.now());
             
-            await fetch(`${this.apiUrl}?${params.toString()}`, {
+            this.showProgressBar('Отправка данных на сервер...', 40);
+            
+            // Отправляем запрос
+            const response = await fetch(`${this.apiUrl}?${params.toString()}`, {
                 method: 'GET',
-                mode: 'no-cors'
+                // Убираем mode: 'no-cors' чтобы получить ответ
             });
             
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            this.showProgressBar('Обработка данных...', 60);
             
-            await this.loadOrders(true);
-            
-            if (this.currentView === 'active') {
-                this.renderActiveOrders();
-            } else if (this.currentView === 'dashboard') {
-                this.renderDashboard();
-            } else {
-                this.render();
+            // Проверяем ответ
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
             
-            this.showNotification('✅ Заказ успешно создан!', 'success');
-            return true;
+            const data = await response.json();
+            
+            this.showProgressBar('Обновление списка заказов...', 80);
+            
+            if (data.success) {
+                // Обновляем список заказов
+                await this.loadOrders(true);
+                
+                this.showProgressBar('Готово!', 100);
+                
+                // Обновляем отображение
+                if (this.currentView === 'active') {
+                    this.renderActiveOrders();
+                } else if (this.currentView === 'dashboard') {
+                    this.renderDashboard();
+                } else {
+                    this.render();
+                }
+                
+                setTimeout(() => this.hideProgressBar(), 500);
+                this.showNotification('✅ Заказ успешно создан!', 'success');
+                return true;
+            } else {
+                this.hideProgressBar();
+                this.showNotification('❌ ' + (data.error || 'Ошибка при создании заказа'), 'danger');
+                return false;
+            }
             
         } catch (error) {
             console.error('Ошибка создания:', error);
-            this.showNotification('❌ Ошибка при создании заказа', 'danger');
+            this.hideProgressBar();
+            this.showNotification('❌ Ошибка при создании заказа: ' + error.message, 'danger');
             return false;
         } finally {
             this.hideLoading();
+            
+            // Сбрасываем состояние сохранения в HTML
+            if (typeof resetSavingState === 'function') {
+                resetSavingState();
+            }
         }
     }
 
