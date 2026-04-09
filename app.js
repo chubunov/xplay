@@ -1599,14 +1599,14 @@ class OrderManager {
     async saveOrder() {
         if (!this.isManager()) {
             this.showNotification('❌ Недостаточно прав', 'danger');
-            return;
+            return false;
         }
         
         const form = document.getElementById('orderForm');
         
         if (!form.checkValidity()) {
             form.reportValidity();
-            return;
+            return false;
         }
         
         let phone = document.getElementById('phone').value;
@@ -1630,10 +1630,13 @@ class OrderManager {
         console.log('Данные для отправки:', orderData);
         
         const success = await this.createOrder(orderData);
-        if (success) {
-            bootstrap.Modal.getInstance(document.getElementById('orderModal')).hide();
-            this.showActiveOrders();
+        
+        // Сбрасываем состояние сохранения
+        if (typeof resetSavingState === 'function') {
+            resetSavingState();
         }
+        
+        return success;
     }
 
     // ========== НАВИГАЦИЯ ==========
