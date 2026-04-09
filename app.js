@@ -598,7 +598,6 @@ class OrderManager {
 
     // ========== РАБОТА С ЗАКАЗАМИ ==========
 
-    // ========== ИСПРАВЛЕННЫЙ МЕТОД createOrder ==========
     async createOrder(orderData) {
         if (!this.isManager()) {
             this.showNotification('❌ Недостаточно прав', 'danger');
@@ -630,7 +629,6 @@ class OrderManager {
             // Отправляем запрос
             const response = await fetch(`${this.apiUrl}?${params.toString()}`, {
                 method: 'GET',
-                // Убираем mode: 'no-cors' чтобы получить ответ
             });
             
             this.showProgressBar('Обработка данных...', 60);
@@ -650,6 +648,9 @@ class OrderManager {
                 
                 this.showProgressBar('Готово!', 100);
                 
+                // Находим созданный заказ
+                const newOrder = this.findNewlyCreatedOrder(orderData);
+                
                 // Обновляем отображение
                 if (this.currentView === 'active') {
                     this.renderActiveOrders();
@@ -659,8 +660,27 @@ class OrderManager {
                     this.render();
                 }
                 
-                setTimeout(() => this.hideProgressBar(), 500);
-                this.showNotification('✅ Заказ успешно создан!', 'success');
+                setTimeout(() => {
+                    this.hideProgressBar();
+                    
+                    // Показываем уведомление
+                    this.showNotification('✅ Заказ успешно создан!', 'success');
+                    
+                    // Если нашли созданный заказ - открываем его
+                    if (newOrder) {
+                        console.log('Открываем созданный заказ:', newOrder.ordernumber);
+                        this.viewOrder(newOrder.id);
+                    } else {
+                        // Если не нашли, пробуем найти по номеру (если он был в ответе)
+                        if (data.orderNumber) {
+                            const orderByNumber = this.getOrderByNumber(data.orderNumber);
+                            if (orderByNumber) {
+                                this.viewOrder(orderByNumber.id);
+                            }
+                        }
+                    }
+                }, 500);
+                
                 return true;
             } else {
                 this.hideProgressBar();
@@ -681,6 +701,65 @@ class OrderManager {
                 resetSavingState();
             }
         }
+    }
+    
+    // ========== НОВЫЙ МЕТОД ДЛЯ ПОИСКА ТОЛЬКО ЧТО СОЗДАННОГО ЗАКАЗА ==========
+    findNewlyCreatedOrder(orderData) {
+        // Ищем заказ по телефону и имени клиента, созданный в последние 10 секунд
+        const now = new Date();
+        const tenSecondsAgo = new Date(now - 10000); // 10 секунд назад
+        
+        // Сортируем заказы по дате создания (новые сначала)
+        const sortedOrders = [...this.orders].sort((a, b) => {
+            const dateA = this.parseDate(a.acceptancedate || a.createdat);
+            const dateB = this.parseDate(b.acceptancedate || b.createdat);
+            return dateB - dateA;
+        });
+        
+        // Ищем заказ, соответствующий данным
+        const foundOrder = sortedOrders.find(order => {
+            // Проверяем телефон (очищенный)
+            const orderPhone = this.cleanPhoneNumber(order.phone);
+            const searchPhone = orderData.phone;
+            
+            // Проверяем имя клиента (без учета регистра)
+            const orderName = this.safeString(order.customername).toLowerCase();
+            const searchName = this.safeString(orderData.customerName).toLowerCase();
+            
+            // Проверяем устройство
+            const orderDevice = this.safeString(order.devicemodel).toLowerCase();
+            const searchDevice = this.safeString(orderData.deviceModel).toLowerCase();
+            
+            // Проверяем дату создания (должен быть создан недавно)
+            const orderDate = this.parseDate(order.acceptancedate || order.createdat);
+            const isRecent = orderDate >= tenSecondsAgo;
+            
+            // Заказ должен соответствовать телефону И имени И быть недавним
+            return orderPhone === searchPhone && 
+                   orderName === searchName && 
+                   orderDevice === searchDevice &&
+                   isRecent;
+        });
+        
+        if (foundOrder) {
+            console.log('Найден созданный заказ:', foundOrder.ordernumber);
+            return foundOrder;
+        }
+        
+        // Если не нашли по всем критериям, ищем просто самый новый заказ
+        if (sortedOrders.length > 0) {
+            const newestOrder = sortedOrders[0];
+            const newestDate = this.parseDate(newestOrder.acceptancedate || newestOrder.createdat);
+            
+            // Если самый новый заказ создан в последние 10 секунд
+            if (newestDate >= tenSecondsAgo) {
+                console.log('Взят самый новый заказ:', newestOrder.ordernumber);
+                return newestOrder;
+            }
+        }
+        
+        console.log('Не удалось найти созданный заказ');
+        return null;
     }
 
     async updateOrder(id, updates) {
@@ -1612,8 +1691,9 @@ class OrderManager {
         let phone = document.getElementById('phone').value;
         const cleanedPhone = this.cleanPhoneNumber(phone);
         
-        console.log('Исходный телефон:', phone);
-        console.log('Очищенный телефон:', cleanedPhone);
+        console.log('Создание нового заказа:');
+        console.log('- Телефон:', cleanedPhone);
+        console.log('- Клиент:', document.getElementById('customerName').value);
         
         const orderData = {
             customerName: document.getElementById('customerName').value,
@@ -1627,13 +1707,23 @@ class OrderManager {
             prepayment: document.getElementById('prepayment').value || '-'
         };
         
-        console.log('Данные для отправки:', orderData);
-        
+        // Сохраняем заказ
         const success = await this.createOrder(orderData);
         
-        // Сбрасываем состояние сохранения
-        if (typeof resetSavingState === 'function') {
-            resetSavingState();
+        if (success) {
+            // Закрываем модальное окно создания
+            const orderModal = bootstrap.Modal.getInstance(document.getElementById('orderModal'));
+            if (orderModal) {
+                orderModal.hide();
+            }
+            
+            // Очищаем форму
+            form.reset();
+            
+            // Сбрасываем состояние сохранения
+            if (typeof resetSavingState === 'function') {
+                resetSavingState();
+            }
         }
         
         return success;
