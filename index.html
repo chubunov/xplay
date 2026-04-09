@@ -700,31 +700,37 @@
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Сохранение...';
         }
         
-        // Показываем глобальный индикатор
-        showGlobalLoading(true);
+        // НЕ показываем глобальный индикатор, так как OrderManager сам покажет прогресс
         
-        // Вызываем оригинальную функцию сохранения
+        // Вызываем функцию сохранения
         try {
             const result = saveOrder();
             
             // Если результат - Promise, ждем его
             if (result && typeof result.then === 'function') {
-                result.finally(() => {
-                    // Сбрасываем состояние после завершения (успех или ошибка)
-                    setTimeout(() => {
-                        isSaving = false;
-                        showGlobalLoading(false);
-                        if (btn) {
-                            btn.disabled = false;
-                            btn.innerHTML = '<i class="bi bi-save"></i> Сохранить договор';
-                        }
-                    }, 500);
+                result.then(() => {
+                    // Успешно сохранено
+                    isSaving = false;
+                    lastSaveTime = 0; // Сбрасываем время для возможности повторного сохранения
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="bi bi-save"></i> Сохранить договор';
+                    }
+                    // Закрываем модальное окно
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('orderModal'));
+                    if (modal) modal.hide();
+                }).catch(() => {
+                    // Ошибка сохранения
+                    isSaving = false;
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="bi bi-save"></i> Сохранить договор';
+                    }
                 });
             } else {
                 // Если синхронная функция
                 setTimeout(() => {
                     isSaving = false;
-                    showGlobalLoading(false);
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = '<i class="bi bi-save"></i> Сохранить договор';
@@ -737,17 +743,26 @@
             console.error('Ошибка при сохранении:', error);
             showNotification('❌ Ошибка при сохранении заказа', 'danger');
             
-            setTimeout(() => {
-                isSaving = false;
-                showGlobalLoading(false);
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="bi bi-save"></i> Сохранить договор';
-                }
-            }, 1000);
+            isSaving = false;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-save"></i> Сохранить договор';
+            }
             
             return false;
         }
+    }
+    
+    // Добавьте функцию для сброса состояния
+    function resetSavingState() {
+        isSaving = false;
+        lastSaveTime = 0;
+        const saveBtn = document.getElementById('saveOrderBtn');
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-save"></i> Сохранить договор';
+        }
+        showGlobalLoading(false);
     }
 
     // Функция для показа/скрытия глобального индикатора
