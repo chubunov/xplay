@@ -157,29 +157,23 @@ class OrderManager {
         const userRole = document.getElementById('userRole');
         const adminMenu = document.getElementById('adminMenu');
         
-        console.log('updateUIForAuth called, isAuthenticated:', this.isAuthenticated);
-        
         if (this.isAuthenticated) {
-            // Показываем меню для авторизованных
             if (mainMenu) mainMenu.style.display = 'flex';
             if (notLoggedInMenu) notLoggedInMenu.style.display = 'none';
             if (loggedInMenu) loggedInMenu.style.display = 'block';
             if (logoutButton) logoutButton.style.display = 'block';
             if (footer) footer.style.display = 'block';
             
-            // Отображаем информацию о пользователе
             if (userName) userName.textContent = this.currentUser || 'Пользователь';
             if (userRole) {
                 userRole.textContent = this.isAdmin() ? 'Админ' : 'Менеджер';
                 userRole.style.background = this.isAdmin() ? 'rgba(255,215,0,0.3)' : 'rgba(255,255,255,0.3)';
             }
             
-            // Показываем админское меню только для админа
             if (adminMenu) {
                 adminMenu.style.display = this.isAdmin() ? 'block' : 'none';
             }
         } else {
-            // Скрываем всё для неавторизованных
             if (mainMenu) mainMenu.style.display = 'none';
             if (notLoggedInMenu) notLoggedInMenu.style.display = 'block';
             if (loggedInMenu) loggedInMenu.style.display = 'none';
@@ -191,11 +185,6 @@ class OrderManager {
 
     showLoginPage() {
         const content = document.getElementById('mainContent');
-        if (!content) {
-            console.error('Элемент mainContent не найден');
-            return;
-        }
-        
         content.innerHTML = `
             <div class="login-container">
                 <div class="card">
@@ -206,26 +195,19 @@ class OrderManager {
                         <h5 class="text-center mb-4">Вход в систему</h5>
                         <div class="mb-3">
                             <label class="form-label">Логин</label>
-                            <input type="text" class="form-control" id="loginInput" placeholder="Введите логин" autocomplete="username">
+                            <input type="text" class="form-control" id="loginInput" placeholder="Введите логин">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Пароль</label>
-                            <input type="password" class="form-control" id="passwordInput" placeholder="Введите пароль" autocomplete="current-password">
+                            <input type="password" class="form-control" id="passwordInput" placeholder="Введите пароль">
                         </div>
                         <div class="mb-3 form-check">
                             <input type="checkbox" class="form-check-input" id="rememberMe">
-                            <label class="form-check-label">Запомнить меня (оставаться в системе)</label>
+                            <label class="form-check-label">Запомнить меня</label>
                         </div>
                         <button class="btn btn-primary w-100" onclick="login()">
                             <i class="bi bi-box-arrow-in-right"></i> Войти
                         </button>
-                        <div class="mt-3 text-center">
-                            <small class="text-muted">
-                                Демо доступ:<br>
-                                Логин: admin / Пароль: admin123<br>
-                                Логин: manager / Пароль: manager123
-                            </small>
-                        </div>
                     </div>
                     <div class="card-footer text-center text-muted">
                         <small>Тула, Центральный переулок д.18 | +7(902)904-73-35</small>
@@ -233,12 +215,6 @@ class OrderManager {
                 </div>
             </div>
         `;
-        
-        // Фокус на поле логина
-        setTimeout(() => {
-            const loginInput = document.getElementById('loginInput');
-            if (loginInput) loginInput.focus();
-        }, 100);
     }
 
     // ========== ИНИЦИАЛИЗАЦИЯ ==========
@@ -256,45 +232,20 @@ class OrderManager {
     }
 
     async init() {
-        // Проверяем авторизацию
+        this.showInitialLoading();
+        
         const isAuth = this.checkAuth();
         
         if (isAuth) {
-            // Если авторизован - показываем загрузку и загружаем данные
-            this.showInitialLoading();
             this.updateUIForAuth();
             await this.loadOrdersWithProgress(true);
             this.showDashboard();
         } else {
-            // Если не авторизован - сразу показываем страницу входа
             this.showLoginPage();
-            this.updateUIForAuth(); // Обновляем UI (скрываем меню)
         }
         
         this.setupEventListeners();
     }
-    
-    // ========== ИСПРАВЛЕННЫЙ ЗАПУСК ПРИЛОЖЕНИЯ ==========
-    document.addEventListener('DOMContentLoaded', async () => {
-        console.log('🚀 Запуск Xplay Сервис...');
-        
-        // Сначала проверяем возможность автоматического входа
-        const autoLoggedIn = await orderManager.checkAuthAndAutoLogin();
-        
-        if (autoLoggedIn) {
-            console.log('✅ Автоматический вход выполнен');
-            orderManager.showInitialLoading();
-            orderManager.updateUIForAuth();
-            await orderManager.loadOrdersWithProgress(true);
-            orderManager.showDashboard();
-            console.log('✅ Приложение готово');
-        } else {
-            console.log('🔐 Автоматический вход не выполнен, показываем страницу входа');
-            // Просто показываем страницу входа, без загрузки
-            orderManager.showLoginPage();
-            orderManager.updateUIForAuth();
-        }
-    });
 
     // ========== РАБОТА С ДАННЫМИ ==========
 
