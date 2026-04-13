@@ -952,6 +952,12 @@ class OrderManager {
                         <tr><td>Дата выдачи:</td><td>${this.formatDate(order.completiondate)}</td></tr>
                         ` : ''}
                     </table>
+
+                    <div class="conditions" style="margin-top: 5px;">
+                        <h6>ДЛЯ ЗАМЕТОК:</h6>
+                        _________________________________________________________________<br>
+                        _________________________________________________________________<br>
+                    </div>
                     
                     <div class="signature">
                         <div>Клиент: _________________</div>
