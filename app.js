@@ -937,9 +937,15 @@ class OrderManager {
                         <tr><td>Клиент:</td><td>${this.safeString(order.customername)}</td></tr>
                         <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone)}</td></tr>
                         <tr><td>Устройство:</td><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
+                        <tr><td>S/N:</td><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
+                        <tr><td>Неисправность:</td><td>${this.safeString(order.problem)}</td></tr>
+                        <tr><td>Примерная стоимость:</td><td>${this.safeString(order.estimatedprice)} ${!this.safeString(order.estimatedprice).includes('уточнит') ? 'руб.' : ''}</td></tr>
+                        <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
+                        <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
                         <tr><td>Статус:</td><td>${this.safeString(order.status) || 'Принят'}</td></tr>
                         ${this.safeString(order.status) === 'Выдан' ? `
                         <tr><td>Итоговая стоимость:</td><td><strong>${this.safeString(order.finalprice) || 0} руб.</strong></td></tr>
+                        <tr><td>Дата выдачи:</td><td>${this.formatDate(order.completiondate)}</td></tr>
                         ` : ''}
                     </table>
                     
