@@ -1127,34 +1127,36 @@ class OrderManager {
             </div>
             
             <div class="row mb-4">
-                <div class="col-md-3">
+                <div class="${this.isAdmin() ? 'col-md-3' : 'col-md-4'}">
                     <div class="card text-center p-3">
                         <h3>${stats.total}</h3>
                         <p class="text-muted">Всего</p>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="${this.isAdmin() ? 'col-md-3' : 'col-md-4'}">
                     <div class="card text-center p-3">
                         <h3 style="color: #0d6efd;">${stats.active}</h3>
                         <p class="text-muted">Активных</p>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="${this.isAdmin() ? 'col-md-3' : 'col-md-4'}">
                     <div class="card text-center p-3">
                         <h3 style="color: #198754;">${stats.completed}</h3>
                         <p class="text-muted">Завершенных</p>
                     </div>
                 </div>
+                ${this.isAdmin() ? `
                 <div class="col-md-3">
                     <div class="card text-center p-3">
                         <h3 style="color: #6f42c1;">${stats.totalSum} ₽</h3>
                         <p class="text-muted">Сумма</p>
                     </div>
                 </div>
+                ` : ''}
             </div>
             
             <div class="row">
-                <div class="col-md-6">
+                <div class="${this.isAdmin() ? 'col-md-6' : 'col-12'}">
                     <div class="card">
                         <div class="card-header">Последние заказы</div>
                         <div class="card-body">
@@ -1162,6 +1164,7 @@ class OrderManager {
                         </div>
                     </div>
                 </div>
+                ${this.isAdmin() ? `
                 <div class="col-md-6">
                     <div class="card">
                         <div class="card-header">Статистика по месяцам</div>
@@ -1170,6 +1173,7 @@ class OrderManager {
                         </div>
                     </div>
                 </div>
+                ` : ''}
             </div>
         `;
         
@@ -1506,136 +1510,15 @@ class OrderManager {
     }
 
     // ========== НАВИГАЦИЯ ==========
-    
+
     showDashboard() {
         if (!this.isAuthenticated) {
             this.showLoginPage();
             return;
         }
-    
-        const content = document.getElementById('mainContent');
-        const now = new Date();
-        
-        // Статистика
-        const activeOrders = this.orders.filter(o => o.status !== 'completed');
-        const completedOrders = this.orders.filter(o => o.status === 'completed');
-        
-        // Заказы за сегодня
-        const todayOrders = this.orders.filter(o => {
-            const d = this.parseDate(o.createdDate || o.createddate);
-            return d.toDateString() === now.toDateString();
-        });
-    
-        // Заказы за месяц
-        const monthOrders = this.orders.filter(o => {
-            const d = this.parseDate(o.createdDate || o.createddate);
-            return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-        });
-    
-        let totalRevenue = 0;
-        let monthRevenue = 0;
-        
-        // Считаем выручку только если админ
-        if (this.isAdmin()) {
-            totalRevenue = completedOrders.reduce((sum, o) => {
-                return sum + (parseFloat(o.finalPrice || o.finalprice || 0));
-            }, 0);
-            
-            const monthCompleted = completedOrders.filter(o => {
-                const d = this.parseDate(o.completedDate || o.completeddate);
-                return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-            });
-            
-            monthRevenue = monthCompleted.reduce((sum, o) => {
-                return sum + (parseFloat(o.finalPrice || o.finalprice || 0));
-            }, 0);
-        }
-    
-        content.innerHTML = `
-            <!-- Статистика -->
-            <div class="row mb-4">
-                <div class="col-md-4 mb-3">
-                    <div class="stat-card">
-                        <div class="stat-number">${activeOrders.length}</div>
-                        <div class="stat-label">Активные заказы</div>
-                    </div>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <div class="stat-card">
-                        <div class="stat-number">${todayOrders.length}</div>
-                        <div class="stat-label">Заказы сегодня</div>
-                    </div>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <div class="stat-card">
-                        <div class="stat-number">${completedOrders.length}</div>
-                        <div class="stat-label">Завершено всего</div>
-                    </div>
-                </div>
-            </div>
-            
-            ${this.isAdmin() ? `
-            <div class="row mb-4">
-                <div class="col-md-4 mb-3">
-                    <div class="stat-card">
-                        <div class="stat-number">${monthOrders.length}</div>
-                        <div class="stat-label">Заказы за месяц</div>
-                    </div>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <div class="stat-card">
-                        <div class="stat-number">${totalRevenue.toLocaleString('ru-RU')} ₽</div>
-                        <div class="stat-label">Общая выручка</div>
-                    </div>
-                </div>
-                <div class="col-md-4 mb-3">
-                    <div class="stat-card">
-                        <div class="stat-number">${monthRevenue.toLocaleString('ru-RU')} ₽</div>
-                        <div class="stat-label">Выручка за месяц</div>
-                    </div>
-                </div>
-            </div>
-            ` : ''}
-            
-            <!-- Последние заказы -->
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Последние заказы</h5>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>№</th>
-                                    <th>Клиент</th>
-                                    <th>Телефон</th>
-                                    <th>Устройство</th>
-                                    <th>Статус</th>
-                                    <th>Дата</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${this.orders.slice(0, 10).map(o => `
-                                    <tr style="cursor:pointer" onclick="orderManager.viewOrder('${o.id || o.ordernumber}')">
-                                        <td>${o.id || o.ordernumber || ''}</td>
-                                        <td>${o.customername || o.customerName || ''}</td>
-                                        <td>${this.formatPhoneNumber(o.phone || '')}</td>
-                                        <td>${o.devicetype || o.deviceType || ''} ${o.devicemodel || o.deviceModel || ''}</td>
-                                        <td>
-                                            <span class="badge ${o.status === 'completed' ? 'bg-success' : 'bg-primary'}">
-                                                ${o.status === 'completed' ? 'Завершен' : 'Активен'}
-                                            </span>
-                                        </td>
-                                        <td>${this.formatDate(o.createdDate || o.createddate || '')}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        `;
+        this.currentView = 'dashboard';
+        this.currentPage = 1;
+        this.render();
     }
 
     showActiveOrders() {
