@@ -1042,27 +1042,19 @@ class OrderManager {
         
         printBtn.onclick = () => this.printOrder(order);
         
-        if (this.isManager()) {
+        // Только администратор может закрывать, восстанавливать и удалять заказы
+        if (this.isAdmin()) {
             if (this.safeString(order.status) !== 'Выдан') {
                 closeBtn.style.display = 'inline-block';
                 closeBtn.onclick = () => this.showCloseOrderForm(order);
                 restoreBtn.style.display = 'none';
             } else {
                 closeBtn.style.display = 'none';
-                if (this.isAdmin()) {
-                    restoreBtn.style.display = 'inline-block';
-                    restoreBtn.onclick = () => this.restoreOrder(order.id);
-                } else {
-                    restoreBtn.style.display = 'none';
-                }
+                restoreBtn.style.display = 'inline-block';
+                restoreBtn.onclick = () => this.restoreOrder(order.id);
             }
-            
-            if (this.isAdmin()) {
-                deleteBtn.style.display = 'inline-block';
-                deleteBtn.onclick = () => this.deleteOrder(order.id);
-            } else {
-                deleteBtn.style.display = 'none';
-            }
+            deleteBtn.style.display = 'inline-block';
+            deleteBtn.onclick = () => this.deleteOrder(order.id);
         } else {
             closeBtn.style.display = 'none';
             restoreBtn.style.display = 'none';
