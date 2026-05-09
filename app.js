@@ -1049,8 +1049,12 @@ class OrderManager {
                 restoreBtn.style.display = 'none';
             } else {
                 closeBtn.style.display = 'none';
-                restoreBtn.style.display = 'inline-block';
-                restoreBtn.onclick = () => this.restoreOrder(order.id);
+                if (this.isAdmin()) {
+                    restoreBtn.style.display = 'inline-block';
+                    restoreBtn.onclick = () => this.restoreOrder(order.id);
+                } else {
+                    restoreBtn.style.display = 'none';
+                }
             }
             
             if (this.isAdmin()) {
