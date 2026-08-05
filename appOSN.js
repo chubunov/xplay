@@ -1,4 +1,6 @@
-// ПОЛНЫЙ КЛАСС ДЛЯ РАБОТЫ С ЗАКАЗАМИ
+// ПОЛНЫЙ КЛАСС ДЛЯ РАБОТЫ С ЗАКАЗАМИ (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ)
+const FETCH_TIMEOUT = 10000; // 10 секунд таймаут для запросов
+
 class OrderManager {
     constructor() {
         this.orders = [];
@@ -8,11 +10,32 @@ class OrderManager {
         this.isAuthenticated = false;
         this.currentUser = null;
         this.userRole = null;
-        // ЗАМЕНИТЕ ЭТОТ URL НА ВАШ ИЗ GOOGLE APPS SCRIPT
-        this.apiUrl = 'https://script.google.com/macros/s/AKfycbx9hyNdAxvmzp5oJFmfChlwVWjPzb5V_L69ZD4didRL67k4ksjdp4J4_7iTxNYx9-fziw/exec';
+        this.apiUrl = 'https://script.google.com/macros/s/AKfycbwJyJd7SroqVSDewJx691EJy6Zm_ll6nSOSPXeuOYTKFeiIMkU25xx0nwSpwKeA3_GP8Q/exec';
         this.loading = false;
         this.currentOrderId = null;
-        this.checkAuth();
+        this.initialized = false;
+    }
+
+    // ========== УЛУЧШЕННЫЙ FETCH С ТАЙМАУТОМ ==========
+    
+    async fetchWithTimeout(url, options = {}) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+        
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Превышено время ожидания ответа от сервера');
+            }
+            throw error;
+        }
     }
 
     // ========== АВТОРИЗАЦИЯ ==========
@@ -26,27 +49,77 @@ class OrderManager {
                     this.isAuthenticated = true;
                     this.currentUser = auth.user;
                     this.userRole = auth.role;
+                    if (auth.remember) {
+                        this.refreshAuthExpiry();
+                    }
                     this.updateUIForAuth();
                     return true;
+                } else {
+                    localStorage.removeItem('xplay_auth');
                 }
             } catch (e) {
                 console.error('Ошибка проверки авторизации:', e);
+                localStorage.removeItem('xplay_auth');
             }
         }
+        
         this.isAuthenticated = false;
         this.currentUser = null;
         this.userRole = null;
         return false;
     }
 
+    refreshAuthExpiry() {
+        const saved = localStorage.getItem('xplay_auth');
+        if (saved) {
+            try {
+                const auth = JSON.parse(saved);
+                auth.expires = Date.now() + 30 * 24 * 60 * 60 * 1000;
+                localStorage.setItem('xplay_auth', JSON.stringify(auth));
+            } catch (e) {
+                console.error('Ошибка продления авторизации:', e);
+            }
+        }
+    }
+
+    async checkAuthAndAutoLogin() {
+        const saved = localStorage.getItem('xplay_auth');
+        if (!saved) return false;
+        
+        try {
+            const auth = JSON.parse(saved);
+            
+            if (auth.expires <= Date.now()) {
+                localStorage.removeItem('xplay_auth');
+                return false;
+            }
+            
+            if (auth.remember) {
+                this.isAuthenticated = true;
+                this.currentUser = auth.user;
+                this.userRole = auth.role;
+                this.refreshAuthExpiry();
+                return true;
+            } else {
+                localStorage.removeItem('xplay_auth');
+                return false;
+            }
+        } catch (e) {
+            console.error('Ошибка автоматического входа:', e);
+            localStorage.removeItem('xplay_auth');
+        }
+        
+        return false;
+    }
+
     async login(login, password, remember = false) {
         this.showLoading();
         try {
-            const response = await fetch(`${this.apiUrl}?action=login&login=${encodeURIComponent(login)}&password=${encodeURIComponent(password)}&t=${Date.now()}`);
+            const response = await this.fetchWithTimeout(
+                `${this.apiUrl}?action=login&login=${encodeURIComponent(login)}&password=${encodeURIComponent(password)}&t=${Date.now()}`
+            );
             
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             
             const data = await response.json();
             
@@ -55,21 +128,22 @@ class OrderManager {
                 this.currentUser = data.user.login;
                 this.userRole = data.user.role;
                 
-                if (remember) {
-                    localStorage.setItem('xplay_auth', JSON.stringify({
-                        user: this.currentUser,
-                        role: this.userRole,
-                        expires: Date.now() + 30 * 24 * 60 * 60 * 1000
-                    }));
-                }
+                const authData = {
+                    user: this.currentUser,
+                    role: this.userRole,
+                    expires: Date.now() + 30 * 24 * 60 * 60 * 1000,
+                    remember: remember
+                };
+                
+                localStorage.setItem('xplay_auth', JSON.stringify(authData));
                 
                 this.updateUIForAuth();
                 this.showNotification(`✅ Добро пожаловать, ${this.currentUser}!`, 'success');
                 
-                // ✅ ЗАГРУЖАЕМ ДАННЫЕ В ФОНЕ С ИНДИКАЦИЕЙ ПРОГРЕССА
-                await this.loadOrdersWithProgress();
-                
+                // Быстрая загрузка: сначала кэш, потом обновление
+                this.loadFromCache();
                 this.showDashboard();
+                this.loadOrdersInBackground();
                 return true;
             } else {
                 this.showNotification('❌ ' + (data.error || 'Неверный логин или пароль'), 'danger');
@@ -81,110 +155,6 @@ class OrderManager {
             return false;
         } finally {
             this.hideLoading();
-        }
-    }
-    
-    // ✅ НОВЫЙ МЕТОД - загрузка с прогрессом
-    async loadOrdersWithProgress() {
-        if (!this.isAuthenticated) return;
-        
-        // Показываем прогресс-бар
-        this.showProgressBar('Загрузка заказов...', 0);
-        
-        try {
-            const startTime = Date.now();
-            
-            // Сначала пробуем загрузить из кэша (мгновенно)
-            const cached = localStorage.getItem('xplay_orders_cache');
-            if (cached) {
-                try {
-                    const data = JSON.parse(cached);
-                    if (data.orders && Array.isArray(data.orders)) {
-                        this.orders = data.orders.map(order => this.normalizeOrder(order));
-                        this.showProgressBar('Загрузка заказов...', 30);
-                        this.showNotification(`📦 Загружено ${this.orders.length} заказов из кэша`, 'info');
-                    }
-                } catch (e) {}
-            }
-            
-            // Обновляем прогресс
-            this.showProgressBar('Обновление данных с сервера...', 50);
-            
-            // Загружаем свежие данные с сервера
-            const url = `${this.apiUrl}?action=getOrders&t=${Date.now()}`;
-            const response = await fetch(url);
-            const data = await response.json();
-            
-            this.showProgressBar('Обработка данных...', 80);
-            
-            if (data.success) {
-                this.orders = (data.orders || []).map(order => this.normalizeOrder(order));
-                this.saveToCache();
-                this.showProgressBar('Готово!', 100);
-                
-                const loadTime = Date.now() - startTime;
-                console.log(`Загружено ${this.orders.length} заказов за ${loadTime}ms`);
-                
-                setTimeout(() => this.hideProgressBar(), 500);
-            } else {
-                this.hideProgressBar();
-                if (!this.orders.length) {
-                    this.showNotification('Не удалось загрузить данные с сервера', 'warning');
-                }
-            }
-        } catch (error) {
-            console.error('Ошибка загрузки:', error);
-            this.hideProgressBar();
-            if (!this.orders.length) {
-                this.showNotification('Ошибка соединения', 'warning');
-            }
-        }
-    }
-    
-    // Показать прогресс-бар
-    showProgressBar(message, percent) {
-        let progressContainer = document.getElementById('progressContainer');
-        if (!progressContainer) {
-            // Создаем прогресс-бар, если его нет
-            const container = document.createElement('div');
-            container.id = 'progressContainer';
-            container.className = 'position-fixed top-0 start-0 w-100 p-3';
-            container.style.zIndex = '10000';
-            container.style.backgroundColor = 'rgba(0,0,0,0.8)';
-            container.innerHTML = `
-                <div class="container">
-                    <div class="card">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span id="progressMessage">Загрузка...</span>
-                                <span id="progressPercent">0%</span>
-                            </div>
-                            <div class="progress">
-                                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
-                                     style="width: 0%"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(container);
-            progressContainer = container;
-        }
-        
-        progressContainer.style.display = 'block';
-        document.getElementById('progressMessage').textContent = message;
-        document.getElementById('progressPercent').textContent = `${percent}%`;
-        document.getElementById('progressBar').style.width = `${percent}%`;
-        
-        if (percent >= 100) {
-            setTimeout(() => this.hideProgressBar(), 1000);
-        }
-    }
-    
-    hideProgressBar() {
-        const container = document.getElementById('progressContainer');
-        if (container) {
-            container.style.display = 'none';
         }
     }
 
@@ -217,26 +187,22 @@ class OrderManager {
         const adminMenu = document.getElementById('adminMenu');
         
         if (this.isAuthenticated) {
-            // Показываем меню для авторизованных
             if (mainMenu) mainMenu.style.display = 'flex';
             if (notLoggedInMenu) notLoggedInMenu.style.display = 'none';
             if (loggedInMenu) loggedInMenu.style.display = 'block';
             if (logoutButton) logoutButton.style.display = 'block';
             if (footer) footer.style.display = 'block';
             
-            // Отображаем информацию о пользователе
             if (userName) userName.textContent = this.currentUser || 'Пользователь';
             if (userRole) {
                 userRole.textContent = this.isAdmin() ? 'Админ' : 'Менеджер';
                 userRole.style.background = this.isAdmin() ? 'rgba(255,215,0,0.3)' : 'rgba(255,255,255,0.3)';
             }
             
-            // Показываем админское меню только для админа
             if (adminMenu) {
                 adminMenu.style.display = this.isAdmin() ? 'block' : 'none';
             }
         } else {
-            // Скрываем всё для неавторизованных
             if (mainMenu) mainMenu.style.display = 'none';
             if (notLoggedInMenu) notLoggedInMenu.style.display = 'block';
             if (loggedInMenu) loggedInMenu.style.display = 'none';
@@ -280,63 +246,198 @@ class OrderManager {
         `;
     }
 
-    // ========== РАБОТА С ДАННЫМИ ==========
+    // ========== ОПТИМИЗИРОВАННАЯ ИНИЦИАЛИЗАЦИЯ ==========
+
+    showInitialLoading() {
+        const content = document.getElementById('mainContent');
+        content.innerHTML = `
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Загрузка...</span>
+                </div>
+                <p class="mt-3 text-muted">Загрузка приложения...</p>
+            </div>
+        `;
+    }
 
     async init() {
-        if (this.isAuthenticated) {
-            await this.loadOrders();
-            this.render();
+        if (this.initialized) return;
+        
+        this.showInitialLoading();
+        
+        // Быстрая проверка авторизации
+        if (this.checkAuth()) {
+            this.updateUIForAuth();
+            
+            // Сразу загружаем из кэша и показываем интерфейс
+            const hasCache = this.loadFromCache();
+            this.showDashboard();
+            
+            // Обновляем данные в фоне
+            if (!hasCache || this.isCacheStale()) {
+                this.loadOrdersInBackground();
+            }
         } else {
             this.showLoginPage();
         }
+        
         this.setupEventListeners();
+        this.initialized = true;
     }
 
-    async loadOrders(force = false) {
+    isCacheStale() {
+        const cached = localStorage.getItem('xplay_orders_cache');
+        if (!cached) return true;
+        
+        try {
+            const data = JSON.parse(cached);
+            // Считаем кэш устаревшим если прошло больше 5 минут
+            return (Date.now() - data.timestamp) > 5 * 60 * 1000;
+        } catch (e) {
+            return true;
+        }
+    }
+
+    async loadOrdersInBackground() {
+        try {
+            await this.loadOrdersWithTimeout(true);
+        } catch (error) {
+            console.log('Фоновое обновление не удалось:', error);
+        }
+    }
+
+    // ========== РАБОТА С ДАННЫМИ ==========
+
+    async loadOrdersWithTimeout(silent = true) {
         if (!this.isAuthenticated) return;
         
-        this.showLoading();
         try {
-            // Если force = true, добавляем параметр для сброса кэша на сервере
-            const url = force 
-                ? `${this.apiUrl}?action=getOrders&t=${Date.now()}&force=true`
-                : `${this.apiUrl}?action=getOrders&t=${Date.now()}`;
-            
-            const response = await fetch(url);
+            const url = `${this.apiUrl}?action=getOrders&t=${Date.now()}`;
+            const response = await this.fetchWithTimeout(url);
             const data = await response.json();
             
-            if (data.success) {
-                this.orders = (data.orders || []).map(order => this.normalizeOrder(order));
+            if (data.success && data.orders) {
+                this.orders = data.orders.map(order => this.normalizeOrder(order));
                 this.saveToCache();
-                this.hideLoading();
                 
-                // Если это принудительная загрузка, показываем уведомление
-                if (force) {
-                    this.showNotification('Данные обновлены с сервера', 'info');
-                }
-            } else {
-                // Если сервер вернул ошибку, пробуем загрузить из кэша
-                if (!this.loadFromCache()) {
-                    this.showNotification('Не удалось загрузить данные с сервера', 'warning');
+                if (this.currentView === 'dashboard') {
+                    this.renderDashboard();
+                } else if (this.currentView === 'active') {
+                    this.renderActiveOrders();
+                } else if (this.currentView === 'completed') {
+                    this.renderCompletedOrders();
                 }
             }
         } catch (error) {
             console.error('Ошибка загрузки:', error);
-            // При ошибке сети пробуем загрузить из кэша
-            if (!this.loadFromCache()) {
-                this.showNotification('Ошибка соединения', 'warning');
-            }
-        } finally {
-            this.hideLoading();
+            throw error;
         }
     }
-    
+
+    async loadOrdersWithProgress(silent = false) {
+        if (!this.isAuthenticated) return;
+        
+        if (!silent) {
+            this.showProgressBar('Загрузка данных...', 10);
+        }
+        
+        try {
+            // Сначала пробуем загрузить из кэша
+            const hasCache = this.loadFromCache();
+            if (hasCache && !silent) {
+                this.showProgressBar('Загрузка из кэша...', 30);
+            }
+            
+            if (!silent) {
+                this.showProgressBar('Обновление с сервера...', 50);
+            }
+            
+            const url = `${this.apiUrl}?action=getOrders&t=${Date.now()}`;
+            const response = await this.fetchWithTimeout(url);
+            const data = await response.json();
+            
+            if (!silent) {
+                this.showProgressBar('Обработка данных...', 80);
+            }
+            
+            if (data.success && data.orders) {
+                this.orders = data.orders.map(order => this.normalizeOrder(order));
+                this.saveToCache();
+                
+                if (!silent) {
+                    this.showProgressBar('Готово!', 100);
+                    setTimeout(() => this.hideProgressBar(), 300);
+                }
+                
+                // Обновляем UI
+                this.render();
+            } else {
+                if (!silent) {
+                    this.hideProgressBar();
+                    if (!this.orders.length) {
+                        this.showNotification('Не удалось загрузить данные с сервера', 'warning');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки:', error);
+            if (!silent) {
+                this.hideProgressBar();
+                if (!this.orders.length) {
+                    this.showNotification('Используются кэшированные данные', 'warning');
+                }
+            }
+        }
+    }
+
+    showProgressBar(message, percent) {
+        let progressContainer = document.getElementById('progressContainer');
+        if (!progressContainer) {
+            const container = document.createElement('div');
+            container.id = 'progressContainer';
+            container.className = 'position-fixed top-0 start-0 w-100 p-3';
+            container.style.zIndex = '10000';
+            container.innerHTML = `
+                <div class="container">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span id="progressMessage">Загрузка...</span>
+                                <span id="progressPercent">0%</span>
+                            </div>
+                            <div class="progress">
+                                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(container);
+            progressContainer = container;
+        }
+        
+        progressContainer.style.display = 'block';
+        document.getElementById('progressMessage').textContent = message;
+        document.getElementById('progressPercent').textContent = `${percent}%`;
+        document.getElementById('progressBar').style.width = `${percent}%`;
+        
+        if (percent >= 100) {
+            setTimeout(() => this.hideProgressBar(), 1000);
+        }
+    }
+
+    hideProgressBar() {
+        const container = document.getElementById('progressContainer');
+        if (container) {
+            container.style.display = 'none';
+        }
+    }
+
     normalizeOrder(order) {
         if (!order) return {};
         
         const normalized = {};
-        
-        // Специальная обработка для важных полей
         const importantFields = ['id', 'ordernumber', 'customername', 'phone', 'status'];
         
         Object.keys(order).forEach(key => {
@@ -350,7 +451,6 @@ class OrderManager {
             }
         });
         
-        // Убеждаемся, что важные поля существуют
         importantFields.forEach(field => {
             if (!(field in normalized)) {
                 normalized[field] = '';
@@ -359,7 +459,7 @@ class OrderManager {
         
         return normalized;
     }
-    
+
     saveToCache() {
         try {
             localStorage.setItem('xplay_orders_cache', JSON.stringify({
@@ -372,7 +472,7 @@ class OrderManager {
             return false;
         }
     }
-    
+
     loadFromCache() {
         const cached = localStorage.getItem('xplay_orders_cache');
         if (cached) {
@@ -380,18 +480,14 @@ class OrderManager {
                 const data = JSON.parse(cached);
                 if (data.orders && Array.isArray(data.orders)) {
                     this.orders = data.orders.map(order => this.normalizeOrder(order));
-                    console.log(`Загружено ${this.orders.length} заказов из кэша`);
                     return true;
                 }
-            } catch (e) {
-                console.error('Ошибка загрузки из кэша:', e);
-            }
+            } catch (e) {}
         }
         this.orders = [];
         return false;
     }
-    
-    // Добавляем метод для очистки кэша (полезно для администратора)
+
     clearCache() {
         if (!this.isAdmin()) {
             this.showNotification('❌ Только администратор может очищать кэш', 'danger');
@@ -401,10 +497,10 @@ class OrderManager {
         localStorage.removeItem('xplay_orders_cache');
         this.orders = [];
         this.showNotification('Кэш очищен', 'success');
-        this.loadOrders(true); // Принудительно загружаем с сервера
+        this.loadOrdersInBackground();
     }
 
-    // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕКСТА ==========
+    // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
     safeString(value) {
         if (value === null || value === undefined) return '';
@@ -412,33 +508,15 @@ class OrderManager {
         return String(value);
     }
 
-    safeSubstring(value, start, length) {
-        const str = this.safeString(value);
-        if (str.length <= start) return '';
-        return str.substring(start, length ? start + length : undefined);
-    }
-
-    // ========== ФУНКЦИИ ДЛЯ ФОРМАТИРОВАНИЯ ДАТЫ ==========
-
     formatDate(date) {
         if (!date) return '';
-        
-        // Если дата уже в формате ДД.ММ.ГГГГ, возвращаем как есть
-        if (typeof date === 'string' && date.match(/^\d{2}\.\d{2}\.\d{4}/)) {
-            return date;
-        }
-        
-        // Если дата в формате "15.03.2026, 15:53" из Google Sheets
-        if (typeof date === 'string' && date.includes(',')) {
-            // Возвращаем как есть, без изменений
-            return date.trim();
-        }
+        if (typeof date === 'string' && date.match(/^\d{2}\.\d{2}\.\d{4}/)) return date;
+        if (typeof date === 'string' && date.includes(',')) return date.trim();
         
         try {
             const d = new Date(date);
             if (isNaN(d.getTime())) return '';
             
-            // Получаем компоненты даты в UTC, чтобы избежать смещения
             const day = String(d.getUTCDate()).padStart(2, '0');
             const month = String(d.getUTCMonth() + 1).padStart(2, '0');
             const year = d.getUTCFullYear();
@@ -447,7 +525,6 @@ class OrderManager {
             
             return `${day}.${month}.${year} ${hours}:${minutes}`;
         } catch (e) {
-            console.error('Ошибка форматирования даты:', e);
             return date;
         }
     }
@@ -455,33 +532,26 @@ class OrderManager {
     parseDate(dateStr) {
         if (!dateStr) return new Date(0);
         
-        // Если дата в формате "15.03.2026, 15:53"
         if (typeof dateStr === 'string' && dateStr.includes(',')) {
             const [datePart, timePart] = dateStr.split(', ');
             const [day, month, year] = datePart.split('.');
             const [hours, minutes] = timePart.split(':');
-            // Создаем дату в UTC, чтобы избежать смещения часового пояса
             return new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hours), parseInt(minutes)));
         }
         
-        // Если дата в формате "15.03.2026"
         if (typeof dateStr === 'string' && dateStr.match(/^\d{2}\.\d{2}\.\d{4}/)) {
             const [day, month, year] = dateStr.split('.');
             return new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day)));
         }
         
-        // Пробуем стандартный парсинг
         const date = new Date(dateStr);
         return isNaN(date.getTime()) ? new Date(0) : date;
     }
-
-    // ========== ФУНКЦИИ ДЛЯ ОБРАБОТКИ ТЕЛЕФОНА ==========
 
     cleanPhoneNumber(phone) {
         const phoneStr = this.safeString(phone);
         if (!phoneStr) return '';
         
-        const original = phoneStr;
         let cleaned = phoneStr.replace(/[^\d+]/g, '');
         
         if (cleaned.startsWith('8')) {
@@ -500,7 +570,6 @@ class OrderManager {
             cleaned = cleaned.substring(0, 12);
         }
         
-        console.log('Телефон очищен:', original, '→', cleaned);
         return cleaned;
     }
 
@@ -518,14 +587,43 @@ class OrderManager {
             return `+7 (${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7, 9)}-${cleaned.substring(9, 11)}`;
         } else if (cleaned.length === 10) {
             return `+7 (${cleaned.substring(0, 3)}) ${cleaned.substring(3, 6)}-${cleaned.substring(6, 8)}-${cleaned.substring(8, 10)}`;
-        } else if (cleaned.length === 11 && cleaned.startsWith('8')) {
-            return `+7 (${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7, 9)}-${cleaned.substring(9, 11)}`;
         }
         
         return phoneStr;
     }
 
-    // ========== РАБОТА С ЗАКАЗАМИ ==========
+    showLoading() {
+        this.loading = true;
+        const loader = document.getElementById('loadingIndicator');
+        if (loader) loader.style.display = 'flex';
+    }
+
+    hideLoading() {
+        this.loading = false;
+        const loader = document.getElementById('loadingIndicator');
+        if (loader) loader.style.display = 'none';
+    }
+
+    showNotification(message, type = 'info', duration = 5000) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+        alertDiv.style.zIndex = '9999';
+        alertDiv.style.minWidth = '300px';
+        alertDiv.style.boxShadow = '0 5px 15px rgba(0,0,0,0.2)';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(alertDiv);
+        
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, duration);
+    }
+
+    // ========== ОПТИМИЗИРОВАННАЯ РАБОТА С ЗАКАЗАМИ ==========
 
     async createOrder(orderData) {
         if (!this.isManager()) {
@@ -534,52 +632,78 @@ class OrderManager {
         }
         
         this.showLoading();
+        this.showProgressBar('Создание заказа...', 20);
+        
         try {
             const cleanedPhone = this.cleanPhoneNumber(orderData.phone);
             orderData.phone = cleanedPhone;
             
-            console.log('Создание заказа с телефоном:', cleanedPhone);
-            
-            // Формируем URL с параметрами для GET-запроса
             const params = new URLSearchParams();
             params.append('action', 'createOrder');
             Object.keys(orderData).forEach(key => {
                 params.append(key, this.safeString(orderData[key]));
             });
-            
-            // Добавляем timestamp для избежания кеширования
             params.append('t', Date.now());
             
-            // Отправляем запрос на сервер
-            await fetch(`${this.apiUrl}?${params.toString()}`, {
-                method: 'GET',
-                mode: 'no-cors'
-            });
+            this.showProgressBar('Отправка данных...', 40);
             
-            // Ждем немного, чтобы сервер обработал запрос
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            const response = await this.fetchWithTimeout(`${this.apiUrl}?${params.toString()}`);
             
-            // Принудительно загружаем заказы с сервера (force = true)
-            await this.loadOrders(true);
+            this.showProgressBar('Обработка...', 60);
             
-            // Обновляем отображение в зависимости от текущего вида
-            if (this.currentView === 'active') {
-                this.renderActiveOrders();
-            } else if (this.currentView === 'dashboard') {
-                this.renderDashboard();
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            
+            this.showProgressBar('Сохранение...', 80);
+            
+            if (data.success) {
+                // Добавляем заказ локально без полной перезагрузки
+                if (data.order) {
+                    const newOrder = this.normalizeOrder(data.order);
+                    this.orders.unshift(newOrder);
+                    this.saveToCache();
+                }
+                
+                this.showProgressBar('Готово!', 100);
+                
+                // Обновляем текущий вид
+                if (this.currentView === 'active') {
+                    this.renderActiveOrders();
+                } else if (this.currentView === 'dashboard') {
+                    this.renderDashboard();
+                }
+                
+                setTimeout(() => {
+                    this.hideProgressBar();
+                    this.showNotification('✅ Заказ успешно создан!', 'success');
+                    
+                    if (data.order) {
+                        this.viewOrder(data.order.id);
+                    }
+                }, 300);
+                
+                // Фоновое обновление для синхронизации
+                setTimeout(() => {
+                    this.loadOrdersInBackground();
+                }, 2000);
+                
+                return true;
             } else {
-                this.render();
+                this.hideProgressBar();
+                this.showNotification('❌ ' + (data.error || 'Ошибка при создании'), 'danger');
+                return false;
             }
-            
-            this.showNotification('✅ Заказ успешно создан!', 'success');
-            return true;
-            
         } catch (error) {
             console.error('Ошибка создания:', error);
+            this.hideProgressBar();
             this.showNotification('❌ Ошибка при создании заказа', 'danger');
             return false;
         } finally {
             this.hideLoading();
+            if (typeof resetSavingState === 'function') {
+                resetSavingState();
+            }
         }
     }
 
@@ -596,7 +720,7 @@ class OrderManager {
             formData.append('id', id);
             formData.append('updates', JSON.stringify(updates));
             
-            const response = await fetch(this.apiUrl, {
+            const response = await this.fetchWithTimeout(this.apiUrl, {
                 method: 'POST',
                 body: formData
             });
@@ -604,8 +728,26 @@ class OrderManager {
             const data = await response.json();
             
             if (data.success) {
-                await this.loadOrders();
+                // Обновляем локально
+                const orderIndex = this.orders.findIndex(o => o.id === id);
+                if (orderIndex !== -1) {
+                    if (updates.status) this.orders[orderIndex].status = updates.status;
+                    if (updates.finalPrice) this.orders[orderIndex].finalprice = updates.finalPrice;
+                    if (updates.completionDate) this.orders[orderIndex].completiondate = updates.completionDate;
+                    this.saveToCache();
+                }
+                
                 this.showNotification('✅ Заказ обновлен', 'success');
+                
+                // Обновляем текущий вид
+                if (this.currentView === 'active') {
+                    this.renderActiveOrders();
+                } else if (this.currentView === 'completed') {
+                    this.renderCompletedOrders();
+                } else if (this.currentView === 'dashboard') {
+                    this.renderDashboard();
+                }
+                
                 return true;
             }
         } catch (error) {
@@ -621,7 +763,7 @@ class OrderManager {
         return this.updateOrder(id, {
             status: 'Выдан',
             finalPrice: finalPrice,
-            completionDate: new Date().toLocaleString('ru-RU', { timeZone: 'UTC' }) // Явно указываем UTC
+            completionDate: new Date().toLocaleString('ru-RU', { timeZone: 'UTC' })
         });
     }
 
@@ -641,8 +783,6 @@ class OrderManager {
         this.showDeleteConfirmation(id);
     }
 
-    // ========== ФУНКЦИИ ДЛЯ УДАЛЕНИЯ ==========
-
     showDeleteConfirmation(id) {
         this.currentOrderId = id;
         const modal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
@@ -650,18 +790,8 @@ class OrderManager {
     }
 
     async confirmDeleteOrder() {
-        if (!this.isAdmin()) {
-            this.showNotification('❌ Только администратор может удалять заказы', 'danger');
-            return;
-        }
-        
-        console.log('========== НАЧИНАЕМ УДАЛЕНИЕ ==========');
-        console.log('1. ID заказа для удаления:', this.currentOrderId);
-        console.log('2. URL API:', this.apiUrl);
-        
-        if (!this.currentOrderId) {
-            console.log('❌ Ошибка: ID заказа не найден');
-            this.showNotification('Ошибка: ID заказа не найден', 'danger');
+        if (!this.isAdmin() || !this.currentOrderId) {
+            this.showNotification('❌ Ошибка удаления', 'danger');
             return;
         }
         
@@ -669,76 +799,36 @@ class OrderManager {
         this.showLoading();
         
         try {
-            console.log('3. Отправляем запрос на удаление...');
-            
             const formData = new FormData();
             formData.append('action', 'deleteOrder');
             formData.append('id', this.currentOrderId);
             
-            console.log('4. FormData создана:', { 
-                action: 'deleteOrder', 
-                id: this.currentOrderId 
-            });
-            
-            const response = await fetch(this.apiUrl, {
+            const response = await this.fetchWithTimeout(this.apiUrl, {
                 method: 'POST',
                 body: formData
             });
             
-            console.log('5. Ответ получен, статус:', response.status);
-            
             const data = await response.json();
-            console.log('6. Данные ответа:', data);
             
             if (data.success) {
-                console.log('✅ Удаление успешно!');
-                
-                await this.loadOrders();
+                // Удаляем локально
+                this.orders = this.orders.filter(o => o.id !== this.currentOrderId);
+                this.saveToCache();
                 
                 const viewModal = bootstrap.Modal.getInstance(document.getElementById('viewOrderModal'));
                 if (viewModal) viewModal.hide();
                 
-                this.showNotification('✅ Заказ успешно удален', 'success');
+                this.showNotification('✅ Заказ удален', 'success');
                 this.render();
             } else {
-                console.log('❌ Ошибка от сервера:', data.error);
-                this.showNotification('❌ Ошибка при удалении заказа: ' + (data.error || 'Неизвестная ошибка'), 'danger');
+                this.showNotification('❌ Ошибка: ' + (data.error || 'Неизвестная ошибка'), 'danger');
             }
         } catch (error) {
-            console.log('❌ Критическая ошибка:', error);
-            console.log('Детали ошибки:', error.message);
-            this.showNotification('❌ Ошибка соединения: ' + error.message, 'danger');
+            this.showNotification('❌ Ошибка соединения', 'danger');
         } finally {
             this.hideLoading();
             this.currentOrderId = null;
-            console.log('========== УДАЛЕНИЕ ЗАВЕРШЕНО ==========');
         }
-    }
-
-    // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
-
-    showLoading() {
-        this.loading = true;
-    }
-
-    hideLoading() {
-        this.loading = false;
-    }
-
-    showNotification(message, type = 'info') {
-        const alertDiv = document.createElement('div');
-        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-        alertDiv.style.zIndex = '9999';
-        alertDiv.style.minWidth = '300px';
-        alertDiv.innerHTML = `
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        document.body.appendChild(alertDiv);
-        
-        setTimeout(() => {
-            alertDiv.remove();
-        }, 5000);
     }
 
     // ========== ПОИСК И ФИЛЬТРАЦИЯ ==========
@@ -808,16 +898,14 @@ class OrderManager {
                     if (this.safeString(o.status) === 'Выдан' && o.finalprice) {
                         monthly[month].sum += parseInt(o.finalprice) || 0;
                     }
-                } catch (e) {
-                    console.error('Ошибка обработки даты:', e);
-                }
+                } catch (e) {}
             }
         });
         
         return { total, active, completed, totalSum, monthly };
     }
 
-    // ========== ФУНКЦИИ ПЕЧАТИ ==========
+    // ========== ПЕЧАТЬ И ПРОСМОТР ==========
 
     printOrder(order) {
         const printWindow = window.open('', '_blank');
@@ -831,89 +919,25 @@ class OrderManager {
                 <style>
                     * { margin: 0; padding: 0; box-sizing: border-box; }
                     @page { size: A4; margin: 1cm; }
-                    body {
-                        font-family: 'Times New Roman', Times, serif;
-                        font-size: 10pt;
-                        line-height: 1.2;
-                        color: #000;
-                        background: #fff;
-                    }
-                    .contract { max-width: 100%; margin: 0 auto; }
-                    .header {
-                        text-align: center;
-                        margin-bottom: 10px;
-                        border-bottom: 1px solid #000;
-                        padding-bottom: 5px;
-                    }
-                    .header h1 { font-size: 14pt; font-weight: bold; margin: 0; }
-                    .header p { font-size: 10pt; margin: 2px 0; }
-                    .contract-number {
-                        text-align: center;
-                        font-size: 12pt;
-                        font-weight: bold;
-                        margin: 10px 0;
-                    }
-                    table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin: 10px 0;
-                        font-size: 9pt;
-                    }
-                    td {
-                        padding: 4px 6px;
-                        border: 1px solid #000;
-                        vertical-align: top;
-                    }
-                    td:first-child {
-                        font-weight: bold;
-                        width: 30%;
-                        background: #f0f0f0;
-                    }
-                    .conditions {
-                        margin: 10px 0;
-                        font-size: 8pt;
-                        line-height: 1.1;
-                        text-align: justify;
-                    }
-                    .conditions h6 {
-                        font-size: 9pt;
-                        font-weight: bold;
-                        margin: 5px 0 2px 0;
-                    }
-                    .signature {
-                        margin-top: 15px;
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 9pt;
-                    }
-                    .cut-line {
-                        text-align: center;
-                        margin: 15px 0 10px 0;
-                        color: #666;
-                        border-top: 1px dashed #999;
-                        padding-top: 5px;
-                        font-size: 9pt;
-                        font-style: italic;
-                    }
-                    .copy {
-                        text-align: center;
-                        font-weight: bold;
-                        font-size: 11pt;
-                        margin: 15px 0 10px 0;
-                        text-transform: uppercase;
-                    }
-                    @media print {
-                        body { margin: 0; padding: 0; }
-                        .no-print { display: none; }
-                    }
+                    body { font-family: 'Times New Roman', Times, serif; font-size: 10pt; line-height: 1.2; }
+                    .header { text-align: center; margin-bottom: 10px; border-bottom: 1px solid #000; padding-bottom: 5px; }
+                    .header h1 { font-size: 14pt; font-weight: bold; }
+                    .contract-number { text-align: center; font-size: 12pt; font-weight: bold; margin: 10px 0; }
+                    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9pt; }
+                    td { padding: 4px 6px; border: 1px solid #000; vertical-align: top; }
+                    td:first-child { font-weight: bold; width: 30%; background: #f0f0f0; }
+                    .conditions { margin: 10px 0; font-size: 8pt; text-align: justify; }
+                    .signature { margin-top: 15px; display: flex; justify-content: space-between; }
+                    .cut-line { text-align: center; margin: 15px 0; border-top: 1px dashed #999; padding-top: 5px; }
+                    .copy { text-align: center; font-weight: bold; font-size: 11pt; margin: 15px 0; text-transform: uppercase; }
+                    @media print { .no-print { display: none; } }
                 </style>
             </head>
             <body>
                 <div class="contract">
                     <div class="header">
                         <h1>Xplay сервис</h1>
-                        <p>Тула, Центральный переулок д.18</p>
-                        <p>+7(902)904-73-35</p>
+                        <p>Тула, Центральный переулок д.18 | +7(902)904-73-35</p>
                     </div>
                     
                     <div class="contract-number">
@@ -925,17 +949,18 @@ class OrderManager {
                         <tr><td>Клиент:</td><td>${this.safeString(order.customername)}</td></tr>
                         <tr><td>Телефон:</td><td>${this.formatPhoneNumber(order.phone)}</td></tr>
                         <tr><td>Устройство:</td><td>${this.safeString(order.devicetype)} ${this.safeString(order.devicemodel)}</td></tr>
-                        <tr><td>Серийный номер:</td><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
+                        <tr><td>S/N:</td><td>${this.safeString(order.serialnumber) || 'Отсутствует'}</td></tr>
                         <tr><td>Неисправность:</td><td>${this.safeString(order.problem)}</td></tr>
-                        <tr><td>Примерная стоимость:</td><td>${this.safeString(order.estimatedprice)} ${!this.safeString(order.estimatedprice).includes('уточнит') ? 'руб.' : ''}</td></tr>
+                        <tr><td>Стоимость:</td><td>${this.safeString(order.estimatedprice)}</td></tr>
                         <tr><td>Предоплата:</td><td>${this.safeString(order.prepayment) === '-' ? 'нет' : this.safeString(order.prepayment)}</td></tr>
                         <tr><td>Гарантия:</td><td>${this.safeString(order.warranty) || '30 дней'}</td></tr>
                         <tr><td>Дата приема:</td><td>${this.formatDate(order.acceptancedate)}</td></tr>
-                        <tr><td>Приблизительный срок ремонта:</td><td>до ${new Date(Date.now() + 2*24*60*60*1000).toLocaleDateString('ru-RU')}</td></tr>
                     </table>
                     
                     <div class="conditions">
-                        <h6>Условия:</h6>
+                        <strong style="font-size: 1.4em;">ОПЛАТА СЕРВИСНЫХ УСЛУГ ПРОИЗВОДИТСЯ НАЛИЧНЫМИ</strong>
+                        <br><br>
+                        <strong>Условия:</strong><br>
                         1. По настоящему договору Исполнитель обязуется принять, провести диагностику и при наличии технической возможности выполнить ремонт принятого устройства в указанный срок и за указанную стоимость.<br>
                         2. При проведении диагностики и обнаружении скрытых неисправностей срок и стоимость ремонта могут быть изменены при обязательном согласовании с Заказчиком.<br>
                         3. Устройство с согласия Заказчика принято без разборки и без проверки внутренних повреждений. Заказчик согласен, что все неисправности и внутренние повреждения, которые могут быть обнаружены в устройстве при техническом обслуживании, возникли до приема устройства по данному договору. <br>
@@ -943,16 +968,15 @@ class OrderManager {
                         5. На выполненную работу и установленные запчасти Исполнитель предоставляет гарантию. Условия и срок гарантия зависят от устраненной неисправности и указаны в Акте выполненных работ. <br>
                         6. При утере договора получить аппарат Заказчик может при предъявлении паспорта. <br>
                         7. В случае неявки Заказчика за получением результата выполненной работы Исполнитель вправе, письменно предупредив Заказчик, по истечении двух месяцев со дня такого предупреждения продать результат работы за разумную цену, а вырученную сумму, за вычетом всех причитающихся Исполнителю платежей, внести в депозит в порядке, предусмотренном статьей 327 Гражданского кодекса Российской Федерации. <br> 
-                        8. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ: 300 руб. - аксессуары, 800 руб. - игровые консоли. 
+                        8. В случае отказа от ремонта заказчик обязуется оплатить стоимость диагностических работ: 300 руб. - аксессуары, 800 руб. - игровые консоли.
                     </div>
                     
                     <div class="signature">
-                        <div>Клиент: _________________________</div>
-                        <div>Мастер: _________________________</div>
+                        <div>Клиент: _________________</div>
+                        <div>Мастер: _________________</div>
                     </div>
                     
-                    <div class="cut-line">- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</div>
-                    <div style="text-align: center; font-size: 8pt; font-style: italic; margin-top: -8px;">(отрезать клиенту)</div>
+                    <div class="cut-line">- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</div>
                     
                     <div class="copy">КОПИЯ ДЛЯ СЕРВИСА</div>
                     
@@ -975,27 +999,24 @@ class OrderManager {
                         <tr><td>Дата выдачи:</td><td>${this.formatDate(order.completiondate)}</td></tr>
                         ` : ''}
                     </table>
-                    
+
                     <div class="conditions" style="margin-top: 5px;">
                         <h6>ДЛЯ ЗАМЕТОК:</h6>
                         _________________________________________________________________<br>
                         _________________________________________________________________<br>
                     </div>
                     
-                    <div class="signature" style="margin-top: 10px;">
-                        <div>Клиент: _________________________</div>
-                        <div>Мастер: _________________________</div>
+                    <div class="signature">
+                        <div>Клиент: _________________</div>
+                        <div>Мастер: _________________</div>
                     </div>
                     
                     <div class="no-print" style="text-align: center; margin-top: 20px;">
-                        <button onclick="window.print()" style="padding: 8px 20px; font-size: 14px; cursor: pointer;">🖨️ Печать</button>
-                        <button onclick="window.close()" style="padding: 8px 20px; font-size: 14px; cursor: pointer;">✖️ Закрыть</button>
+                        <button onclick="window.print()" style="padding: 8px 20px;">🖨️ Печать</button>
+                        <button onclick="window.close()" style="padding: 8px 20px;">✖️ Закрыть</button>
                     </div>
                 </div>
-                
-                <script>
-                    setTimeout(() => { window.print(); }, 500);
-                </script>
+                <script>setTimeout(() => { window.print(); }, 300);</script>
             </body>
             </html>
         `;
@@ -1003,8 +1024,6 @@ class OrderManager {
         printWindow.document.write(html);
         printWindow.document.close();
     }
-
-    // ========== ПРОСМОТР ЗАКАЗА ==========
 
     async viewOrder(id) {
         const order = this.getOrderById(id);
@@ -1052,6 +1071,10 @@ class OrderManager {
         
         html += `
                 </table>
+                <div class="alert alert-info mt-3">
+                    <i class="bi bi-info-circle"></i> 
+                    <strong>Нажмите "Печать" чтобы распечатать договор для клиента.</strong>
+                </div>
             </div>
         `;
         
@@ -1064,7 +1087,7 @@ class OrderManager {
         
         printBtn.onclick = () => this.printOrder(order);
         
-        if (this.isManager()) {
+        if (this.isAdmin()) {
             if (this.safeString(order.status) !== 'Выдан') {
                 closeBtn.style.display = 'inline-block';
                 closeBtn.onclick = () => this.showCloseOrderForm(order);
@@ -1074,14 +1097,8 @@ class OrderManager {
                 restoreBtn.style.display = 'inline-block';
                 restoreBtn.onclick = () => this.restoreOrder(order.id);
             }
-            
-            // Кнопка удаления только для админа
-            if (this.isAdmin()) {
-                deleteBtn.style.display = 'inline-block';
-                deleteBtn.onclick = () => this.deleteOrder(order.id);
-            } else {
-                deleteBtn.style.display = 'none';
-            }
+            deleteBtn.style.display = 'inline-block';
+            deleteBtn.onclick = () => this.deleteOrder(order.id);
         } else {
             closeBtn.style.display = 'none';
             restoreBtn.style.display = 'none';
@@ -1150,34 +1167,36 @@ class OrderManager {
             </div>
             
             <div class="row mb-4">
-                <div class="col-md-3">
+                <div class="${this.isAdmin() ? 'col-md-3' : 'col-md-4'}">
                     <div class="card text-center p-3">
                         <h3>${stats.total}</h3>
                         <p class="text-muted">Всего</p>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="${this.isAdmin() ? 'col-md-3' : 'col-md-4'}">
                     <div class="card text-center p-3">
                         <h3 style="color: #0d6efd;">${stats.active}</h3>
                         <p class="text-muted">Активных</p>
                     </div>
                 </div>
-                <div class="col-md-3">
+                <div class="${this.isAdmin() ? 'col-md-3' : 'col-md-4'}">
                     <div class="card text-center p-3">
                         <h3 style="color: #198754;">${stats.completed}</h3>
                         <p class="text-muted">Завершенных</p>
                     </div>
                 </div>
+                ${this.isAdmin() ? `
                 <div class="col-md-3">
                     <div class="card text-center p-3">
                         <h3 style="color: #6f42c1;">${stats.totalSum} ₽</h3>
                         <p class="text-muted">Сумма</p>
                     </div>
                 </div>
+                ` : ''}
             </div>
             
             <div class="row">
-                <div class="col-md-6">
+                <div class="${this.isAdmin() ? 'col-md-6' : 'col-12'}">
                     <div class="card">
                         <div class="card-header">Последние заказы</div>
                         <div class="card-body">
@@ -1185,6 +1204,7 @@ class OrderManager {
                         </div>
                     </div>
                 </div>
+                ${this.isAdmin() ? `
                 <div class="col-md-6">
                     <div class="card">
                         <div class="card-header">Статистика по месяцам</div>
@@ -1193,6 +1213,7 @@ class OrderManager {
                         </div>
                     </div>
                 </div>
+                ` : ''}
             </div>
         `;
         
@@ -1200,22 +1221,15 @@ class OrderManager {
     }
 
     renderRecentOrders() {
-        // Сортируем заказы: сначала активные (статус не "Выдан"), потом выданные, внутри каждой группы по дате (новые выше)
         const sortedOrders = [...this.orders].sort((a, b) => {
             const statusA = this.safeString(a.status);
             const statusB = this.safeString(b.status);
             
-            // Определяем приоритет: активные (не "Выдан") имеют приоритет 1, выданные - 0
             const isActiveA = statusA !== 'Выдан';
             const isActiveB = statusB !== 'Выдан';
             
-            // Сначала сравниваем по активности
-            if (isActiveA !== isActiveB) {
-                // Активные выше (возвращаем -1 если A активный, B нет)
-                return isActiveA ? -1 : 1;
-            }
+            if (isActiveA !== isActiveB) return isActiveA ? -1 : 1;
             
-            // Если статус одинаковый, сортируем по дате (новые выше)
             const dateA = this.parseDate(a.acceptancedate);
             const dateB = this.parseDate(b.acceptancedate);
             return dateB - dateA;
@@ -1226,25 +1240,20 @@ class OrderManager {
             return '<p class="text-muted">Нет заказов</p>';
         }
         
-        return recent.map(o => {
-            const formattedPhone = this.formatPhoneNumber(o.phone);
-            const formattedDate = this.formatDate(o.acceptancedate);
-            
-            return `
-                <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong><br>
-                            <small>${this.safeString(o.customername)} | ${formattedPhone}</small><br>
-                            <small class="text-muted">📅 ${formattedDate}</small>
-                        </div>
-                        <span class="status-badge ${this.safeString(o.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
-                            ${this.safeString(o.status) || 'Новый'}
-                        </span>
+        return recent.map(o => `
+            <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong><br>
+                        <small>${this.safeString(o.customername)} | ${this.formatPhoneNumber(o.phone)}</small><br>
+                        <small class="text-muted">📅 ${this.formatDate(o.acceptancedate)}</small>
                     </div>
+                    <span class="status-badge ${this.safeString(o.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
+                        ${this.safeString(o.status) || 'Новый'}
+                    </span>
                 </div>
-            `;
-        }).join('');
+            </div>
+        `).join('');
     }
 
     renderMonthlyStats(monthly) {
@@ -1294,7 +1303,7 @@ class OrderManager {
     }
 
     renderCompletedOrders() {
-        if (!this.isAuthenticated || !this.isAdmin()) {
+        if (!this.isAdmin()) {
             this.showNotification('Только для администратора', 'warning');
             return;
         }
@@ -1335,10 +1344,8 @@ class OrderManager {
         }
         
         return orders.map(o => {
-            const formattedPhone = this.formatPhoneNumber(o.phone);
             const problem = this.safeString(o.problem);
             const problemShort = problem.length > 50 ? problem.substring(0, 47) + '...' : problem;
-            const formattedDate = this.formatDate(o.acceptancedate);
             
             return `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
@@ -1348,7 +1355,7 @@ class OrderManager {
                             <div class="mt-2">
                                 <small>
                                     <i class="bi bi-person"></i> ${this.safeString(o.customername)}<br>
-                                    <i class="bi bi-telephone"></i> ${formattedPhone}<br>
+                                    <i class="bi bi-telephone"></i> ${this.formatPhoneNumber(o.phone)}<br>
                                     <i class="bi bi-controller"></i> ${this.safeString(o.devicetype)} ${this.safeString(o.devicemodel)}
                                 </small>
                             </div>
@@ -1360,10 +1367,7 @@ class OrderManager {
                             <span class="status-badge status-active d-inline-block mb-2">
                                 ${this.safeString(o.status) || 'Новый'}
                             </span>
-                            <div><small>📅 ${formattedDate}</small></div>
-                            ${this.safeString(o.estimatedprice) && !this.safeString(o.estimatedprice).includes('уточнит') ? `
-                                <div class="mt-2"><small>💰 ${this.safeString(o.estimatedprice)} ₽</small></div>
-                            ` : ''}
+                            <div><small>📅 ${this.formatDate(o.acceptancedate)}</small></div>
                         </div>
                     </div>
                 </div>
@@ -1376,34 +1380,27 @@ class OrderManager {
             return '<p class="text-center py-4">Нет завершенных заказов</p>';
         }
         
-        return orders.map(o => {
-            const formattedPhone = this.formatPhoneNumber(o.phone);
-            const formattedAcceptDate = this.formatDate(o.acceptancedate);
-            const formattedCompleteDate = this.formatDate(o.completiondate);
-            
-            return `
-                <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
-                    <div class="row">
-                        <div class="col-md-7">
-                            <strong class="text-primary">${this.safeString(o.ordernumber) || 'Без номера'}</strong>
-                            <div class="mt-2">
-                                <small>
-                                    <i class="bi bi-person"></i> ${this.safeString(o.customername)}<br>
-                                    <i class="bi bi-telephone"></i> ${formattedPhone}<br>
-                                    <i class="bi bi-controller"></i> ${this.safeString(o.devicetype)} ${this.safeString(o.devicemodel)}
-                                </small>
-                            </div>
-                        </div>
-                        <div class="col-md-5 text-end">
-                            <span class="status-badge status-completed d-inline-block mb-2">${this.safeString(o.status) || 'Выдан'}</span>
-                            <div><small>📅 Принят: ${formattedAcceptDate}</small></div>
-                            <div><small>✅ Выдан: ${formattedCompleteDate}</small></div>
-                            <div class="mt-2"><strong>💰 ${this.safeString(o.finalprice) || 0} ₽</strong></div>
+        return orders.map(o => `
+            <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
+                <div class="row">
+                    <div class="col-md-7">
+                        <strong class="text-primary">${this.safeString(o.ordernumber) || 'Без номера'}</strong>
+                        <div class="mt-2">
+                            <small>
+                                <i class="bi bi-person"></i> ${this.safeString(o.customername)}<br>
+                                <i class="bi bi-telephone"></i> ${this.formatPhoneNumber(o.phone)}
+                            </small>
                         </div>
                     </div>
+                    <div class="col-md-5 text-end">
+                        <span class="status-badge status-completed d-inline-block mb-2">Выдан</span>
+                        <div><small>📅 ${this.formatDate(o.acceptancedate)}</small></div>
+                        <div><small>✅ ${this.formatDate(o.completiondate)}</small></div>
+                        <div class="mt-2"><strong>💰 ${this.safeString(o.finalprice) || 0} ₽</strong></div>
+                    </div>
                 </div>
-            `;
-        }).join('');
+            </div>
+        `).join('');
     }
 
     renderPagination(totalPages) {
@@ -1446,7 +1443,7 @@ class OrderManager {
                                 <label class="form-label">Введите телефон или номер заказа</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control" id="searchQuery" 
-                                           placeholder="Напр. +7 (920) 270-19-69 или 20240314-001"
+                                           placeholder="+7 (920) 270-19-69 или 20240314-001"
                                            onkeypress="if(event.key==='Enter') orderManager.performSearch()">
                                     <button class="btn btn-primary" onclick="orderManager.performSearch()">
                                         <i class="bi bi-search"></i> Найти
@@ -1478,24 +1475,17 @@ class OrderManager {
         let html = '<h5 class="mt-4">Результаты поиска:</h5>';
         
         results.forEach(o => {
-            const formattedPhone = this.formatPhoneNumber(o.phone);
-            const formattedDate = this.formatDate(o.acceptancedate);
-            
             html += `
                 <div class="order-item" onclick="orderManager.viewOrder('${o.id}')">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong>
-                            <br>
-                            <small>${this.safeString(o.customername)} | ${formattedPhone}</small>
-                            <br>
-                            <small class="text-muted">📅 ${formattedDate}</small>
+                            <strong>${this.safeString(o.ordernumber) || 'Без номера'}</strong><br>
+                            <small>${this.safeString(o.customername)} | ${this.formatPhoneNumber(o.phone)}</small><br>
+                            <small class="text-muted">📅 ${this.formatDate(o.acceptancedate)}</small>
                         </div>
-                        <div class="text-end">
-                            <span class="status-badge ${this.safeString(o.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
-                                ${this.safeString(o.status) || 'Новый'}
-                            </span>
-                        </div>
+                        <span class="status-badge ${this.safeString(o.status) === 'Выдан' ? 'status-completed' : 'status-active'}">
+                            ${this.safeString(o.status) || 'Новый'}
+                        </span>
                     </div>
                 </div>
             `;
@@ -1519,21 +1509,18 @@ class OrderManager {
     async saveOrder() {
         if (!this.isManager()) {
             this.showNotification('❌ Недостаточно прав', 'danger');
-            return;
+            return false;
         }
         
         const form = document.getElementById('orderForm');
         
         if (!form.checkValidity()) {
             form.reportValidity();
-            return;
+            return false;
         }
         
         let phone = document.getElementById('phone').value;
         const cleanedPhone = this.cleanPhoneNumber(phone);
-        
-        console.log('Исходный телефон:', phone);
-        console.log('Очищенный телефон:', cleanedPhone);
         
         const orderData = {
             customerName: document.getElementById('customerName').value,
@@ -1547,13 +1534,19 @@ class OrderManager {
             prepayment: document.getElementById('prepayment').value || '-'
         };
         
-        console.log('Данные для отправки:', orderData);
-        
         const success = await this.createOrder(orderData);
+        
         if (success) {
-            bootstrap.Modal.getInstance(document.getElementById('orderModal')).hide();
-            this.showActiveOrders();
+            const orderModal = bootstrap.Modal.getInstance(document.getElementById('orderModal'));
+            if (orderModal) orderModal.hide();
+            form.reset();
+            
+            if (typeof resetSavingState === 'function') {
+                resetSavingState();
+            }
         }
+        
+        return success;
     }
 
     // ========== НАВИГАЦИЯ ==========
@@ -1620,17 +1613,12 @@ const orderManager = new OrderManager();
 
 // ========== ГЛОБАЛЬНЫЕ ФУНКЦИИ ==========
 
-// Навигация
 function showDashboard() { orderManager.showDashboard(); }
 function showActiveOrders() { orderManager.showActiveOrders(); }
 function showCompletedOrders() { orderManager.showCompletedOrders(); }
 function showSearch() { orderManager.showSearch(); }
 function showNewOrderForm() { orderManager.showNewOrderForm(); }
-
-// Авторизация
-function showLogin() { 
-    orderManager.showLoginPage(); 
-}
+function showLogin() { orderManager.showLoginPage(); }
 
 async function login() {
     const login = document.getElementById('loginInput').value;
@@ -1646,13 +1634,10 @@ async function login() {
 }
 
 function logout() { orderManager.logout(); }
-
-// Работа с заказами
-async function saveOrder() { await orderManager.saveOrder(); }
+async function saveOrder() { return await orderManager.saveOrder(); }
 async function confirmCloseOrder() { await orderManager.confirmCloseOrder(); }
 async function confirmDeleteOrder() { await orderManager.confirmDeleteOrder(); }
 
-// Экспорт
 function exportData() { 
     new bootstrap.Modal(document.getElementById('exportModal')).show(); 
 }
@@ -1710,7 +1695,33 @@ function exportToCSV() {
     orderManager.showNotification('✅ Данные экспортированы в CSV', 'success');
 }
 
-// ========== ЗАПУСК ==========
+// ========== ОПТИМИЗИРОВАННЫЙ ЗАПУСК ==========
 document.addEventListener('DOMContentLoaded', async () => {
-    await orderManager.init();
+    console.log('🚀 Запуск Xplay Сервис...');
+    
+    // Быстрая инициализация
+    orderManager.showInitialLoading();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Проверяем автологин
+    const autoLoggedIn = await orderManager.checkAuthAndAutoLogin();
+    
+    if (autoLoggedIn) {
+        console.log('✅ Автоматический вход');
+        orderManager.updateUIForAuth();
+        
+        // Загружаем кэш и показываем интерфейс
+        const hasCache = orderManager.loadFromCache();
+        orderManager.showDashboard();
+        
+        // Обновляем в фоне если нужно
+        if (!hasCache || orderManager.isCacheStale()) {
+            orderManager.loadOrdersInBackground();
+        }
+        
+        console.log('✅ Приложение готово');
+    } else {
+        console.log('🔐 Требуется авторизация');
+        await orderManager.init();
+    }
 });
