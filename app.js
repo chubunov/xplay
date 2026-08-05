@@ -1638,6 +1638,10 @@ async function saveOrder() { return await orderManager.saveOrder(); }
 async function confirmCloseOrder() { await orderManager.confirmCloseOrder(); }
 async function confirmDeleteOrder() { await orderManager.confirmDeleteOrder(); }
 
+function reloadApp() {
+    location.reload();
+}
+
 function exportData() { 
     new bootstrap.Modal(document.getElementById('exportModal')).show(); 
 }
@@ -1694,6 +1698,7 @@ function exportToCSV() {
     bootstrap.Modal.getInstance(document.getElementById('exportModal')).hide();
     orderManager.showNotification('✅ Данные экспортированы в CSV', 'success');
 }
+
 
 // ========== ОПТИМИЗИРОВАННЫЙ ЗАПУСК ==========
 document.addEventListener('DOMContentLoaded', async () => {
