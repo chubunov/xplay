@@ -1257,7 +1257,7 @@ class OrderManager {
     }
 
     renderMonthlyStats(monthly) {
-        const months = Object.entries(monthly).slice(0, 6);
+        const months = Object.entries(monthly);
         if (months.length === 0) {
             return '<p class="text-muted">Нет данных</p>';
         }
