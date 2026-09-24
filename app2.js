@@ -660,9 +660,27 @@ class OrderManager {
             if (data.success) {
                 // Добавляем заказ локально без полной перезагрузки
                 if (data.order) {
-                    const newOrder = this.normalizeOrder(data.order);
-                    this.orders.unshift(newOrder);
-                    this.saveToCache();
+                    // Проверяем, нет ли уже такого заказа в локальном списке
+                    const exists = this.orders.some(o => o.id === data.order.id);
+                    if (!exists) {
+                        const newOrder = this.normalizeOrder(data.order);
+                        this.orders.unshift(newOrder);
+                        this.saveToCache();
+                    }
+                }
+                
+                // Если это был дубликат — показываем другое сообщение
+                if (data.isDuplicate) {
+                    setTimeout(() => {
+                        this.hideProgressBar();
+                        this.showNotification('ℹ️ Заказ уже был создан ранее, открываем существующий', 'info');
+                        if (data.order) {
+                            this.viewOrder(data.order.id);
+                        }
+                    }, 300);
+                    
+                    setTimeout(() => this.loadOrdersInBackground(), 2000);
+                    return true;
                 }
                 
                 this.showProgressBar('Готово!', 100);
