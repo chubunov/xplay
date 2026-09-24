@@ -1,0 +1,188 @@
+// Google Apps Script код
+function doGet(e) {
+  return handleRequest(e);
+}
+
+function doPost(e) {
+  return handleRequest(e);
+}
+
+function handleRequest(e) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet();
+  const ordersSheet = sheet.getSheetByName('Orders');
+  const settingsSheet = sheet.getSheetByName('Settings');
+  
+  const action = e.parameter.action;
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  
+  try {
+    let result;
+    
+    // АВТОРИЗАЦИЯ
+    if (action === 'login') {
+      const login = e.parameter.login;
+      const password = e.parameter.password;
+      
+      // Читаем данные из листа Settings
+      // Формат: Логин | Пароль | Роль
+      const settingsData = settingsSheet.getDataRange().getValues();
+      let user = null;
+      
+      for (let i = 1; i < settingsData.length; i++) {
+        if (settingsData[i][0] === login && settingsData[i][1] === password) {
+          user = {
+            login: settingsData[i][0],
+            role: settingsData[i][2] || 'manager' // по умолчанию менеджер
+          };
+          break;
+        }
+      }
+      
+      if (user) {
+        result = { 
+          success: true, 
+          user: user,
+          message: 'Вход выполнен успешно'
+        };
+      } else {
+        result = { 
+          success: false, 
+          error: 'Неверный логин или пароль'
+        };
+      }
+    }
+    
+    // Получение всех заказов
+    else if (action === 'getOrders') {
+      const data = ordersSheet.getDataRange().getValues();
+      const headers = data[0];
+      const orders = [];
+      
+      for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (row[0]) {
+          const order = {};
+          headers.forEach((header, index) => {
+            const key = String(header).toLowerCase();
+            order[key] = row[index];
+          });
+          orders.push(order);
+        }
+      }
+      result = { success: true, orders: orders };
+    }
+    
+    // Создание нового заказа
+    else if (action === 'createOrder') {
+      // Проверяем права (создавать могут все авторизованные)
+      const newOrder = {
+        id: 'order_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        ordernumber: generateOrderNumber(ordersSheet),
+        customername: e.parameter.customerName,
+        phone: e.parameter.phone,
+        devicetype: e.parameter.deviceType,
+        devicemodel: e.parameter.deviceModel || '',
+        serialnumber: e.parameter.serialNumber || 'Отсутствует',
+        problem: e.parameter.problem,
+        estimatedprice: e.parameter.estimatedPrice || 'Мастер уточнит',
+        finalprice: '',
+        warranty: e.parameter.warranty || '30 дней',
+        prepayment: e.parameter.prepayment || '-',
+        status: 'Принят',
+        acceptancedate: new Date().toLocaleString('ru-RU'),
+        completiondate: '',
+        createdat: new Date().toISOString()
+      };
+      
+      ordersSheet.appendRow([
+        newOrder.id,
+        newOrder.ordernumber,
+        newOrder.customername,
+        newOrder.phone,
+        newOrder.devicetype,
+        newOrder.devicemodel,
+        newOrder.serialnumber,
+        newOrder.problem,
+        newOrder.estimatedprice,
+        newOrder.finalprice,
+        newOrder.warranty,
+        newOrder.prepayment,
+        newOrder.status,
+        newOrder.acceptancedate,
+        newOrder.completiondate,
+        newOrder.createdat
+      ]);
+      
+      result = { success: true, order: newOrder };
+    }
+    
+    // Обновление заказа (закрытие, восстановление)
+    else if (action === 'updateOrder') {
+      const orderId = e.parameter.id;
+      const updates = JSON.parse(e.parameter.updates);
+      
+      const data = ordersSheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] === orderId) {
+          const row = i + 1;
+          
+          if (updates.status) ordersSheet.getRange(row, 13).setValue(updates.status);
+          if (updates.finalPrice) ordersSheet.getRange(row, 10).setValue(updates.finalPrice);
+          if (updates.completionDate) ordersSheet.getRange(row, 15).setValue(updates.completionDate);
+          
+          break;
+        }
+      }
+      
+      result = { success: true };
+    }
+    
+    // Удаление заказа (только для админа)
+    else if (action === 'deleteOrder') {
+      const deleteId = e.parameter.id;
+      const data = ordersSheet.getDataRange().getValues();
+      
+      for (let i = data.length - 1; i >= 1; i--) {
+        if (data[i][0] === deleteId) {
+          ordersSheet.deleteRow(i + 1);
+          break;
+        }
+      }
+      
+      result = { success: true };
+    }
+    
+    else {
+      result = { success: false, error: 'Неизвестное действие' };
+    }
+    
+    output.setContent(JSON.stringify(result));
+    return output;
+    
+  } catch(error) {
+    output.setContent(JSON.stringify({ 
+      success: false, 
+      error: error.toString() 
+    }));
+    return output;
+  }
+}
+
+function generateOrderNumber(sheet) {
+  const date = new Date();
+  const dateStr = date.getFullYear() + 
+                  ('0' + (date.getMonth() + 1)).slice(-2) + 
+                  ('0' + date.getDate()).slice(-2);
+  
+  const data = sheet.getDataRange().getValues();
+  let count = 1;
+  
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1] && data[i][1].startsWith(dateStr)) {
+      count++;
+    }
+  }
+  
+  return dateStr + '-' + ('00' + count).slice(-3);
+}
